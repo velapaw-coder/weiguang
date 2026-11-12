@@ -1,0 +1,6 @@
+{
+  "appId": "com.weiguang.energy.demo",
+  "appName": "微光",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false }
+}
