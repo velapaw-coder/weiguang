@@ -6,8 +6,12 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.weiguang.energy.core.DebugModelPoster;
 import com.weiguang.energy.core.HealthRepository;
 import com.weiguang.energy.core.ReminderPolicy;
+
+import android.content.Context;
+import android.content.SharedPreferences;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -142,13 +146,61 @@ public class WeiguangStorePlugin extends Plugin {
         }
         ReminderScheduler.cancelAll(getContext());
         repo().deleteAllUserData();
+        debugPrefs().edit().remove(DEBUG_KEY).apply();
         call.resolve(snapshotObject());
+    }
+
+    @PluginMethod
+    public void debugModelStatus(PluginCall call) {
+        call.resolve(debugStatus());
+    }
+
+    @PluginMethod
+    public void setDebugModelKey(PluginCall call) {
+        if (!debugBuild()) {
+            call.resolve(error("release_direct_disabled"));
+            return;
+        }
+        String value = call.getString("value", "");
+        if (value == null) {
+            value = "";
+        }
+        debugPrefs().edit().putString(DEBUG_KEY, value.trim()).apply();
+        call.resolve(debugStatus());
+    }
+
+    @PluginMethod
+    public void postDebugModel(PluginCall call) {
+        String body = call.getString("body", "");
+        try {
+            DebugModelPoster.Outcome outcome = DebugModelPoster.send(
+                    debugBuild(),
+                    debugPrefs().getString(DEBUG_KEY, ""),
+                    DebugModelPoster.RESPONSES_URL,
+                    body,
+                    this::postHttps);
+            JSObject result = new JSObject();
+            result.put("sent", outcome.sent);
+            result.put("reason", outcome.reason);
+            result.put("httpStatus", outcome.httpStatus);
+            result.put("bodyText", outcome.bodyText);
+            call.resolve(result);
+        } catch (Exception exception) {
+            JSObject result = new JSObject();
+            result.put("sent", false);
+            result.put("reason", "transport");
+            result.put("httpStatus", 0);
+            result.put("bodyText", "");
+            call.resolve(result);
+        }
     }
 
     @PluginMethod
     public void setMeta(PluginCall call) {
         String key = call.getString("key", "");
-        if (key.isEmpty() || key.startsWith("device_bind")) {
+        String normalized = key.toLowerCase();
+        if (key.isEmpty() || key.startsWith("device_bind")
+                || normalized.contains("volc") || normalized.contains("api_key") || normalized.contains("secret")) {
             call.resolve(error("bad_meta"));
             return;
         }
@@ -225,8 +277,48 @@ public class WeiguangStorePlugin extends Plugin {
         return latest;
     }
 
+    private static final String DEBUG_PREFS = "weiguang_debug_model";
+    private static final String DEBUG_KEY = "api_key";
+
     private HealthRepository repo() {
         return WeiguangStores.get(getContext());
+    }
+
+    private SharedPreferences debugPrefs() {
+        return getContext().getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE);
+    }
+
+    private boolean debugBuild() {
+        return (getContext().getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
+    private JSObject debugStatus() {
+        boolean debug = debugBuild();
+        String key = debug ? debugPrefs().getString(DEBUG_KEY, "") : "";
+        JSObject result = new JSObject();
+        result.put("debug", debug);
+        result.put("configured", debug && key != null && !key.trim().isEmpty());
+        return result;
+    }
+
+    private DebugModelPoster.Response postHttps(String url, String authorization, String body) throws Exception {
+        java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        try {
+            connection.setConnectTimeout(20000);
+            connection.setReadTimeout(20000);
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setRequestProperty("content-type", "application/json");
+            connection.setRequestProperty("authorization", authorization);
+            byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            connection.getOutputStream().write(bytes);
+            int status = connection.getResponseCode();
+            java.io.InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            return new DebugModelPoster.Response(status, readText(stream));
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private static String zone(PluginCall call) {
@@ -235,6 +327,19 @@ public class WeiguangStorePlugin extends Plugin {
             return java.time.ZoneId.systemDefault().getId();
         }
         return zone;
+    }
+
+    private static String readText(java.io.InputStream stream) throws Exception {
+        if (stream == null) {
+            return "";
+        }
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[4096];
+        int count;
+        while ((count = stream.read(chunk)) >= 0) {
+            buffer.write(chunk, 0, count);
+        }
+        return new String(buffer.toByteArray(), "UTF-8");
     }
 
     private static JSObject error(String code) {
@@ -265,7 +370,9 @@ public class WeiguangStorePlugin extends Plugin {
         Iterator<Map.Entry<String, String>> it = meta.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String, String> entry = it.next();
-            if (entry.getKey().startsWith("device_bind")) {
+            String metaKey = entry.getKey().toLowerCase();
+            if (entry.getKey().startsWith("device_bind")
+                    || metaKey.contains("volc") || metaKey.contains("api_key") || metaKey.contains("secret")) {
                 continue;
             }
             object.put(entry.getKey(), entry.getValue());

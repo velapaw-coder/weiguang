@@ -56,6 +56,8 @@ export default function App() {
   const [consent, setConsent] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxyToken, setProxyToken] = useState('');
+  const [debugModel, setDebugModel] = useState({ debug: false, configured: false });
+  const [modelKey, setModelKey] = useState('');
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   const toast = (text) => { setNotice(text); window.setTimeout(() => setNotice(''), 3200); };
@@ -68,6 +70,8 @@ export default function App() {
     setConsent(snapshot.meta?.ai_consent === 'yes');
     setProxyUrl(snapshot.meta?.proxy_url || '');
     setProxyToken(snapshot.meta?.proxy_token || '');
+    const model = await WeiguangStore.debugModelStatus();
+    setDebugModel({ debug: model?.debug === true, configured: model?.configured === true });
   }
 
   useEffect(() => {
@@ -249,11 +253,21 @@ export default function App() {
           </form>
           <div className="detail-panel">
             <strong>模型</strong>
-            <p>页面不保存火山密钥。正式包只走代理；内部测试由运行进程的环境变量直连，密钥不进源码和安装包。这里的地址和令牌只留在这部手机。</p>
+            <p>调试安装包可以在本页保存测试密钥，只留在这部手机。正式包没有这项，只走上面的代理。密钥不进源码。</p>
             <label className="detail-choice"><input type="checkbox" checked={consent} onChange={async (event) => { const next = event.target.checked; setConsent(next); if (android) await WeiguangStore.setMeta({ key: 'ai_consent', value: next ? 'yes' : 'no' }); }} /> 允许把最小摘要发给模型</label>
             <input value={proxyUrl} onChange={(event) => setProxyUrl(event.target.value)} placeholder="https://代理地址" />
             <input value={proxyToken} onChange={(event) => setProxyToken(event.target.value)} placeholder="代理令牌，不是火山密钥" />
             <button className="detail-choice" onClick={async () => { await WeiguangStore.setMeta({ key: 'proxy_url', value: proxyUrl }); await WeiguangStore.setMeta({ key: 'proxy_token', value: proxyToken }); toast('已保存在本机'); }}>保存代理设置</button>
+            {android && debugModel.debug && <>
+              <input type="password" autoComplete="off" value={modelKey} onChange={(event) => setModelKey(event.target.value)} placeholder={debugModel.configured ? '测试密钥已在这部手机，留空则保持' : '内部测试密钥，只留在这部手机'} />
+              <button className="detail-choice" type="button" onClick={async () => {
+                if (!modelKey.trim()) { toast(debugModel.configured ? '仍使用这部手机上的测试密钥' : '还没有填写测试密钥'); return; }
+                const saved = await WeiguangStore.setDebugModelKey({ value: modelKey.trim() });
+                setModelKey('');
+                setDebugModel({ debug: saved?.debug === true, configured: saved?.configured === true });
+                toast(saved?.configured ? '测试密钥只保存在这部手机' : '正式包不能保存测试密钥');
+              }}>保存测试密钥</button>
+            </>}
           </div>
           <button className="reset-link" onClick={async () => { if (!android) { toast('没有本地数据库'); return; } await WeiguangStore.deleteAll({ confirmed: true }); setCoach(null); refresh(); }}>删除这部手机上的微光数据</button>
         </div>}

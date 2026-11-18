@@ -143,6 +143,90 @@ describe('langgraph volcano direct', () => {
     }
   });
 
+  it('android langgraph calls the native adapter and keeps store false', async () => {
+    const seen = [];
+    const result = await runDeviceCoach({
+      question: '看步数',
+      observations: steps,
+      consent: true,
+      online: true,
+      env: {},
+      androidBridge: {
+        async debugModelStatus() {
+          return { debug: true, configured: true };
+        },
+        async postDebugModel({ body, url }) {
+          seen.push({ body: JSON.parse(body), url });
+          return { sent: true, httpStatus: 200, bodyText: JSON.stringify({ status: 'completed', output_text: '已对照步数。\n{"proposals":[{"title":"出门走一走","detail":"对照这次步数"}]}' }) };
+        },
+      },
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe('https://ark.cn-beijing.volces.com/api/v3/responses');
+    expect(seen[0].body.store).toBe(false);
+    expect(seen[0].body.thinking).toEqual({ type: 'disabled' });
+    expect(seen[0].body.max_output_tokens).toBe(256);
+    expect(seen[0].body.input.at(-1).content[0].text).toContain('steps');
+    expect(JSON.stringify(seen[0].body)).not.toContain('SECRET');
+    expect(result.values.modelStatus).toBe('ok');
+    expect(result.values.modelText).toContain('步数');
+    expect(result.values.proposals[0].source).toBe('langgraph');
+  });
+
+  it('android adapter keeps http and incomplete failures', async () => {
+    const http = await runDeviceCoach({
+      observations: steps,
+      consent: true,
+      online: true,
+      env: {},
+      androidBridge: {
+        async debugModelStatus() { return { debug: true, configured: true }; },
+        async postDebugModel() { return { sent: true, httpStatus: 500, bodyText: '{"error":{"message":"no"}}' }; },
+      },
+    });
+    const incomplete = await runDeviceCoach({
+      observations: steps,
+      consent: true,
+      online: true,
+      env: {},
+      androidBridge: {
+        async debugModelStatus() { return { debug: true, configured: true }; },
+        async postDebugModel() { return { sent: true, httpStatus: 200, bodyText: '{"status":"incomplete","incomplete_details":{"reason":"length"}}' }; },
+      },
+    });
+    expect(http.values.modelStatus).toBe('model_failed');
+    expect(incomplete.values.modelStatus).toBe('model_incomplete');
+  });
+
+  it('a release phone and an empty sample do not call the model', async () => {
+    let posts = 0;
+    const release = await runDeviceCoach({
+      observations: steps,
+      consent: true,
+      online: true,
+      env: { WEIGUANG_VOLC_API_KEY: 'secret-key-value', WEIGUANG_CHANNEL: 'release' },
+      androidBridge: {
+        async debugModelStatus() { return { debug: false, configured: false }; },
+        async postDebugModel() { posts += 1; return { sent: false }; },
+      },
+    });
+    const empty = await runDeviceCoach({
+      observations: [],
+      consent: true,
+      online: true,
+      env: {},
+      androidBridge: {
+        async debugModelStatus() { return { debug: true, configured: true }; },
+        async postDebugModel() { posts += 1; return { sent: true, httpStatus: 200, bodyText: '{"status":"completed","output_text":"不该出现"}' }; },
+      },
+    });
+    expect(posts).toBe(0);
+    expect(release.values.modelStatus).toBe('model_unconfigured');
+    expect(release.values.proposals[0].source).toBe('local_rule');
+    expect(empty.values.proposals).toEqual([]);
+    expect(JSON.stringify(release)).not.toContain('secret-key-value');
+  });
+
   it('without a proxy or key the graph stays local and does not invent a model reply', async () => {
     const result = await runDeviceCoach({
       question: '看步数',

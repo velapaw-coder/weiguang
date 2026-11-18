@@ -1,3 +1,4 @@
+import { buildResponsesBody, interpretResponses } from '../../server/model-proxy/protocol.mjs';
 import { runCoach } from './graph.js';
 import { localTurns, postCoach } from './proxy-client.js';
 import { postVolcDirect, readDirectConfig, runtimeEnv } from './volc-direct.js';
@@ -13,9 +14,53 @@ async function directFileText(env) {
   }
 }
 
-export async function runDeviceCoach({ question, snapshot, observations, consent, proxyUrl, proxyToken, online, env = runtimeEnv() }) {
+async function androidStatus(androidBridge) {
+  if (androidBridge?.debugModelStatus) return androidBridge.debugModelStatus();
+  const { WeiguangStore, isAndroidApp } = await import('../band/native.js');
+  if (!isAndroidApp()) return { debug: false, configured: false };
+  try {
+    return await WeiguangStore.debugModelStatus();
+  } catch {
+    return { debug: false, configured: false };
+  }
+}
+
+async function postAndroidDebug({ summary, turns, androidBridge, model, url }) {
+  const body = JSON.stringify(buildResponsesBody({ summary, turns, model }));
+  const bridge = androidBridge?.postDebugModel
+    ? androidBridge
+    : (await import('../band/native.js')).WeiguangStore;
+  let posted;
+  try {
+    posted = await bridge.postDebugModel({ body, url });
+  } catch {
+    return { status: 'model_failed', reason: 'transport' };
+  }
+  if (!posted?.sent) return { status: 'model_unconfigured', reason: posted?.reason || 'key_not_configured' };
+  let json = null;
+  try {
+    json = posted.bodyText ? JSON.parse(posted.bodyText) : null;
+  } catch {
+    json = null;
+  }
+  return interpretResponses(posted.httpStatus, json);
+}
+
+export async function runDeviceCoach({
+  question,
+  snapshot,
+  observations,
+  consent,
+  proxyUrl,
+  proxyToken,
+  online,
+  env = runtimeEnv(),
+  androidBridge,
+}) {
   const proxyConfigured = Boolean(proxyUrl && proxyToken);
   const direct = readDirectConfig(env, await directFileText(env));
+  const phone = await androidStatus(androidBridge);
+  const phoneDirect = phone.debug === true && phone.configured === true;
   return runCoach({
     question,
     threadId: 'coach',
@@ -28,13 +73,15 @@ export async function runDeviceCoach({ question, snapshot, observations, consent
       sync: snapshot?.sync || [],
       connected: snapshot?.connected === true,
       consent: consent === true,
-      proxyConfigured: proxyConfigured || direct.configured,
+      proxyConfigured: proxyConfigured || direct.configured || phoneDirect,
       online: online !== false,
       turns: localTurns(snapshot?.coachResults),
     }),
-    callModel: ({ summary, turns }) => (proxyConfigured
-      ? postCoach({ proxyUrl, proxyToken, summary, turns })
-      : postVolcDirect({ summary, turns, apiKey: direct.apiKey, model: direct.model, url: direct.url })),
+    callModel: ({ summary, turns }) => {
+      if (proxyConfigured) return postCoach({ proxyUrl, proxyToken, summary, turns });
+      if (phoneDirect) return postAndroidDebug({ summary, turns, androidBridge, model: direct.model, url: direct.url });
+      return postVolcDirect({ summary, turns, apiKey: direct.apiKey, model: direct.model, url: direct.url });
+    },
     persist: async ({ values, checkpointJson, summaryJson }) => {
       const { WeiguangStore, isAndroidApp } = await import('../band/native.js');
       if (!isAndroidApp()) return;
