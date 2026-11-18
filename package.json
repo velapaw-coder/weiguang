@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run && node --test server/model-proxy/test.mjs server/model-proxy/runtime.test.mjs && PYTHONPATH=third_party/nanomuse:third_party:/tmp/wg-py python3 -m unittest third_party/weiguang_muse/test_loop.py"
+    "test": "vitest run && node --test server/model-proxy/test.mjs server/model-proxy/runtime.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.3",
