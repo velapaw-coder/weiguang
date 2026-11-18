@@ -19,8 +19,11 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.weiguang.energy.core.BandCommandQueue;
+import com.weiguang.energy.core.BandLink;
+import com.weiguang.energy.core.ConnectDiagnostic;
 import com.weiguang.energy.core.HealthRepository;
 import com.weiguang.energy.core.ObservationKey;
+import com.weiguang.energy.core.VitalSample;
 import com.yc.utesdk.bean.HeartRateInfo;
 import com.yc.utesdk.bean.HrvInfo;
 import com.yc.utesdk.bean.MoodPressureFatigueInfo;
@@ -52,6 +55,10 @@ import com.yc.utesdk.utils.open.SPUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.HashSet;
 import java.util.List;
@@ -97,6 +104,8 @@ public class UteBandPlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Set<String> scanned = new HashSet<>();
     private final BandCommandQueue queue = new BandCommandQueue(System::currentTimeMillis);
+    private final BandLink link = new BandLink();
+    private boolean autoSyncArmed;
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor();
     private final java.util.concurrent.ExecutorService commandRunner = Executors.newSingleThreadExecutor();
     private UteBleConnection connection;
@@ -133,7 +142,10 @@ public class UteBandPlugin extends Plugin {
                 getContext().registerReceiver(bluetoothReceiver, filter);
             }
         }
-        ticker.scheduleAtFixedRate(() -> queue.tick(), 300, 300, TimeUnit.MILLISECONDS);
+        ticker.scheduleAtFixedRate(() -> {
+            queue.tick();
+            main.post(this::syncWhenIdle);
+        }, 300, 300, TimeUnit.MILLISECONDS);
         main.post(this::bindConnection);
     }
 
@@ -274,29 +286,26 @@ public class UteBandPlugin extends Plugin {
         }
         stopScanInternal();
         String name = call.getString("name", "");
-        repo().upsertDevice(address, name, null, null, null, null, null, System.currentTimeMillis());
-        queue.submit("connect", 20000, () -> {
-            main.post(() -> {
-                try {
-                    if (client.isConnected(address)) {
-                        connection = client.getUteBleConnection();
-                        bindConnection(connection);
-                        queue.succeed("connect");
-                        emit("connection", state());
-                        main.post(UteBandPlugin.this::syncAfterConnect);
-                        return;
-                    }
-                    connection = client.connect(address);
-                    bindConnection(connection);
-                } catch (RuntimeException ex) {
-                    lastError = "connect_exception";
-                    queue.fail("connect", "connect_exception");
-                    emit("connection", errorObject("connect_exception"));
-                }
-            });
+        try {
+            repo().upsertDevice(address, name, null, null, null, null, null, System.currentTimeMillis());
+        } catch (RuntimeException ex) {
+            call.resolve(errorObject("store_failed"));
+            return;
+        }
+        link.opening();
+        autoSyncArmed = false;
+        queue.submit("connect", 25000, () -> {
+            main.postDelayed(() -> openLink(client, address), 400);
             return false;
         });
         call.resolve(state());
+    }
+
+    @PluginMethod
+    public void exportConnectDiagnostic(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("text", readDiagnostic());
+        call.resolve(result);
     }
 
     @PluginMethod
@@ -310,18 +319,52 @@ public class UteBandPlugin extends Plugin {
     @PluginMethod
     public void syncNow(PluginCall call) {
         UteBleClient client = client();
-        if (client == null || !client.isConnected()) {
+        if (client == null || !client.isConnected() || !link.mayRead()) {
             call.resolve(errorObject("not_connected"));
             return;
         }
-        beginSync();
+        autoSyncArmed = true;
+        syncWhenIdle();
+        if (autoSyncArmed && queue.pendingCount() == 0) {
+            call.resolve(errorObject("device_busy"));
+            return;
+        }
         JSObject result = state();
         result.put("accepted", true);
         result.put("syncId", syncId);
         call.resolve(result);
     }
 
+    private void openLink(UteBleClient client, String address) {
+        try {
+            bindConnection();
+            if (client.isConnected(address)) {
+                connection = client.getUteBleConnection();
+                bindConnection(connection);
+                link.onSdkStatus(BleConnectStateListener.STATE_CONNECTED);
+                queue.succeed("connect");
+                saveCapabilities();
+                emit("connection", state());
+                autoSyncArmed = true;
+                syncWhenIdle();
+                return;
+            }
+            connection = client.connect(address);
+            bindConnection(connection);
+        } catch (Throwable error) {
+            link.failed();
+            autoSyncArmed = false;
+            remember("open", error);
+            queue.fail("connect", "connect_failed");
+            disconnectQuietly();
+            emit("connection", errorObject("connect_failed"));
+        }
+    }
+
     private void beginSync() {
+        if (!link.mayRead()) {
+            return;
+        }
         syncId = UUID.randomUUID().toString();
         boolean known = capabilitiesKnown();
         enqueue("time", 12000, () -> connection().syncDeviceTime(), false);
@@ -344,8 +387,8 @@ public class UteBandPlugin extends Plugin {
     private void enqueue(String name, long timeoutMs, Runnable command, boolean skip) {
         String address = currentAddress();
         long now = System.currentTimeMillis();
-        if (!address.isEmpty()) {
-            repo().touchSync(address, name, skip ? "skipped" : "running", skip ? "not_read_or_unsupported" : null, null, null, now);
+        if (!address.isEmpty() && !skip) {
+            repo().touchSync(address, name, "running", null, null, null, now);
         }
         queue.submit(name, timeoutMs, () -> {
             if (skip) {
@@ -373,7 +416,8 @@ public class UteBandPlugin extends Plugin {
                             return;
                         }
                         command.run();
-                    } catch (RuntimeException ex) {
+                    } catch (Throwable error) {
+                        remember("command", error);
                         queue.fail(name, "command_failed");
                         markSync(name, "failed", "command_failed", null);
                     }
@@ -408,34 +452,28 @@ public class UteBandPlugin extends Plugin {
         }
     }
 
-    private void bindConnection(UteBleConnection link) {
-        if (link == null) {
+    private void bindConnection(UteBleConnection session) {
+        if (session == null) {
             return;
         }
-        link.setConnectStateListener(new BleConnectStateListener() {
+        session.setConnectStateListener(new BleConnectStateListener() {
             @Override
             public void onConnecteStateChange(int status) {
-                if (status == STATE_CONNECTED) {
-                    queue.succeed("connect");
-                    saveCapabilities();
-                    emit("connection", state());
-                    main.post(() -> syncAfterConnect());
-                } else if (status == STATE_DISCONNECTED) {
-                    queue.fail("connect", "disconnected");
-                    emit("connection", state());
-                } else {
-                    emit("connection", state());
-                }
+                main.post(() -> applyLinkStatus(status));
             }
 
             @Override
             public void onConnectException(Exception error) {
-                lastError = "connect_exception";
-                queue.fail("connect", "connect_exception");
-                emit("connection", errorObject("connect_exception"));
+                main.post(() -> {
+                    link.failed();
+                    autoSyncArmed = false;
+                    remember("callback", error);
+                    queue.fail("connect", "connect_failed");
+                    emit("connection", errorObject("connect_failed"));
+                });
             }
         });
-        link.setSimpleCallbackListener((result, status) -> {
+        session.setSimpleCallbackListener((result, status) -> {
             if (status == SimpleCallbackListener.BIND_CONNECT_SEND_ACCOUNT_ID && result) {
                 respondToBind();
             }
@@ -443,7 +481,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("time", result, result ? null : "time_failed");
             }
         });
-        link.setDeviceFirmwareVersionListener(new DeviceFirmwareVersionListener() {
+        session.setDeviceFirmwareVersionListener(new DeviceFirmwareVersionListener() {
             @Override
             public void queryFirmwareVersionSuccess(String firmwareVersion) {
                 repo().upsertDevice(currentAddress(), safeName(), firmwareVersion, null, null, capabilityJson(), System.currentTimeMillis(), System.currentTimeMillis());
@@ -456,7 +494,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("firmware", false, "firmware_failed");
             }
         });
-        link.setDeviceParamListener(new DeviceParamListener() {
+        session.setDeviceParamListener(new DeviceParamListener() {
             @Override
             public <T> void onQueryDeviceParam(boolean ok, int type, T value) {
                 if (type == DeviceParamListener.QUERY_SN_CODE) {
@@ -467,7 +505,7 @@ public class UteBandPlugin extends Plugin {
                 }
             }
         });
-        link.setDeviceBatteryListener(new DeviceBatteryListener() {
+        session.setDeviceBatteryListener(new DeviceBatteryListener() {
             @Override
             public void queryDeviceBatterySuccess(int battery) {
                 storeBattery(battery, batteryState);
@@ -485,7 +523,7 @@ public class UteBandPlugin extends Plugin {
                 emit("battery", state());
             }
         });
-        link.setStepChangeListener(new StepChangeListener() {
+        session.setStepChangeListener(new StepChangeListener() {
             @Override
             public void onStepChange(StepOneDayAllInfo info) {
                 storeSteps(info);
@@ -517,7 +555,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("steps", false, "steps_failed");
             }
         });
-        link.setSleepChangeListener(new SleepChangeListener() {
+        session.setSleepChangeListener(new SleepChangeListener() {
             @Override
             public void onSleepSyncSuccess(List<SleepInfo> list) {
                 if (list != null) {
@@ -549,7 +587,7 @@ public class UteBandPlugin extends Plugin {
                 // Read-only build: do not change the band alarm.
             }
         });
-        link.setHeartRateChangeListener(new HeartRateChangeListener() {
+        session.setHeartRateChangeListener(new HeartRateChangeListener() {
             @Override
             public void onHeartRateStatus(boolean result, int status) {
             }
@@ -604,7 +642,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("resting_heart_rate", false, "resting_heart_failed");
             }
         });
-        link.setOxygenChangeListener(new OxygenChangeListener() {
+        session.setOxygenChangeListener(new OxygenChangeListener() {
             @Override
             public void onOxygenStatus(boolean result, int status) {
             }
@@ -633,7 +671,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("spo2", false, "spo2_failed");
             }
         });
-        link.setTemperatureChangeListener(new TemperatureChangeListener() {
+        session.setTemperatureChangeListener(new TemperatureChangeListener() {
             @Override
             public void onTemperatureStatus(boolean result, int status) {
             }
@@ -662,7 +700,7 @@ public class UteBandPlugin extends Plugin {
                 finishCommand("temperature", false, "temperature_failed");
             }
         });
-        link.setMoodPressureListener(new MoodPressureListener() {
+        session.setMoodPressureListener(new MoodPressureListener() {
             @Override
             public void onMoodPressureStatus(boolean result, int status) {
             }
@@ -695,7 +733,7 @@ public class UteBandPlugin extends Plugin {
             public void onMoodPressureSensor(com.yc.utesdk.bean.MoodSensorInterfaceInfo info) {
             }
         });
-        link.setElHRVListener(new ElHRVListener() {
+        session.setElHRVListener(new ElHRVListener() {
             @Override
             public void onElHRVStatus(boolean result, int status) {
             }
@@ -729,16 +767,56 @@ public class UteBandPlugin extends Plugin {
         });
     }
 
-    private void syncAfterConnect() {
-        if (queue.pendingCount() > 0) {
+    private void applyLinkStatus(int status) {
+        try {
+            link.onSdkStatus(status);
+            if (status == BleConnectStateListener.STATE_CONNECTED && link.mayRead()) {
+                queue.succeed("connect");
+                saveCapabilities();
+                autoSyncArmed = true;
+                emit("connection", state());
+                syncWhenIdle();
+            } else if (status == BleConnectStateListener.STATE_DISCONNECTED) {
+                autoSyncArmed = false;
+                queue.fail("connect", "disconnected");
+                emit("connection", state());
+            } else {
+                emit("connection", state());
+            }
+        } catch (Throwable error) {
+            link.failed();
+            autoSyncArmed = false;
+            remember("callback", error);
+            queue.fail("connect", "connect_failed");
+            emit("connection", errorObject("connect_failed"));
+        }
+    }
+
+    private void syncWhenIdle() {
+        if (!autoSyncArmed || !link.mayRead()) {
             return;
         }
         UteBleClient client = client();
         if (client == null || !client.isConnected()) {
             return;
         }
-        beginSync();
-        emit("syncStarted", state());
+        try {
+            if (client.isDeviceBusy() || queue.pendingCount() > 0) {
+                return;
+            }
+        } catch (Throwable error) {
+            remember("busy_check", error);
+            return;
+        }
+        try {
+            beginSync();
+            autoSyncArmed = false;
+            emit("syncStarted", state());
+        } catch (Throwable error) {
+            autoSyncArmed = false;
+            remember("sync", error);
+            emit("connection", errorObject("sync_failed"));
+        }
     }
 
     private void storeBattery(int battery, int state) {
@@ -801,7 +879,7 @@ public class UteBandPlugin extends Plugin {
 
     private void storeSleep(SleepInfo info) {
         String calendar = info.getCalendar() == null ? "" : info.getCalendar();
-        String sample = calendar + "|" + info.getStartSleepTime() + "|" + info.getEndSleepTime();
+        String sample = VitalSample.sleepId(calendar, info.getStartSleepTime(), info.getEndSleepTime());
         JSONObject value = new JSONObject();
         try {
             value.put("totalMinutes", info.getTotalSleepTime());
@@ -854,16 +932,19 @@ public class UteBandPlugin extends Plugin {
             return;
         }
         String when = firstText(info.getCalendarTime(), info.getCalendar());
+        boolean plausible = VitalSample.bodyCelsiusPlausible(info.getBodyTemperature());
         JSONObject value = new JSONObject();
         try {
             value.put("body", info.getBodyTemperature());
             value.put("surface", info.getBodySurfaceTemperature());
             value.put("ambient", info.getAmbientTemperature());
             value.put("type", info.getType());
+            value.put("unit", "celsius_sdk_float");
         } catch (org.json.JSONException ignored) {
             return;
         }
-        putSample("temperature", when + "|" + info.getSecondTime(), when, value, when.isEmpty() ? "device_time_missing" : "recorded");
+        String quality = !plausible ? "invalid_device_value" : (when.isEmpty() ? "device_time_missing" : "recorded");
+        putSample("temperature", when + "|" + info.getSecondTime(), when, value, quality);
     }
 
     private void storeMood(MoodPressureFatigueInfo info) {
@@ -873,17 +954,22 @@ public class UteBandPlugin extends Plugin {
         String when = firstText(info.getStartDate(), info.getCalendar());
         JSONObject value = new JSONObject();
         try {
-            value.put("pressure", info.getPressureValue());
-            value.put("mood", info.getMoodValue());
-            value.put("fatigue", info.getFatigueValue());
+            if (info.getPressureValue() != MoodPressureFatigueInfo.INVALID_VALUE) {
+                value.put("pressure", info.getPressureValue());
+            }
+            if (info.getMoodValue() != MoodPressureFatigueInfo.INVALID_VALUE) {
+                value.put("mood", info.getMoodValue());
+            }
+            if (info.getFatigueValue() != MoodPressureFatigueInfo.INVALID_VALUE) {
+                value.put("fatigue", info.getFatigueValue());
+            }
             value.put("moodText", info.getMoodDes());
             value.put("pressureText", info.getPressureDes());
             value.put("fatigueText", info.getFatigueDes());
         } catch (org.json.JSONException ignored) {
             return;
         }
-        boolean invalid = info.getPressureValue() == MoodPressureFatigueInfo.INVALID_VALUE
-                && info.getMoodValue() == MoodPressureFatigueInfo.INVALID_VALUE;
+        boolean invalid = !value.has("pressure") && !value.has("mood") && !value.has("fatigue");
         putSample("mood_pressure", when + "|" + info.getTime(), when, value, invalid ? "invalid_device_value" : "recorded");
     }
 
@@ -953,9 +1039,9 @@ public class UteBandPlugin extends Plugin {
             root.put("heart_rate", flag(known, known && DeviceMode.isHasFunction_1(DeviceMode.IS_SUPPORT_HEART_RATE_FUNCTION), "isHasFunction_1(IS_SUPPORT_HEART_RATE_FUNCTION)"));
             root.put("resting_heart_rate", flag(known, known && DeviceMode.isHasFunction_8(DeviceMode.IS_SUPPORT_RESET_HEART_RATE), "isHasFunction_8(IS_SUPPORT_RESET_HEART_RATE)"));
             root.put("spo2", flag(known, known && DeviceMode.isHasFunction_5(DeviceMode.IS_SUPPORT_OXYGEN), "isHasFunction_5(IS_SUPPORT_OXYGEN)"));
-            root.put("temperature", flag(known, known && DeviceMode.isHasFunction_5(DeviceMode.IS_SUPPORT_TEMPERATURE_TEST), "isHasFunction_5(IS_SUPPORT_TEMPERATURE_TEST)"));
-            root.put("mood_pressure", flag(known, known && DeviceMode.isHasFunction_6(DeviceMode.IS_SUPPORT_MOOD_PRESSURE_FATIGUE), "isHasFunction_6(IS_SUPPORT_MOOD_PRESSURE_FATIGUE)"));
-            root.put("hrv", flag(known, known && (DeviceMode.isHasFunction_8(DeviceMode.IS_SUPPORT_HRV_TEST) || DeviceMode.isHasFunction_11(DeviceMode.IS_SUPPORT_LOCATION_HRV)), "function_8_HRV_TEST_or_function_11_LOCATION_HRV"));
+            root.put("temperature", flag(known, known && DeviceMode.isHasFunction_5(DeviceMode.IS_SUPPORT_TEMPERATURE_TEST), "isHasFunction_5(IS_SUPPORT_TEMPERATURE_TEST); sdk float kept as celsius, 30 to 45 accepted"));
+            root.put("mood_pressure", flag(known, known && DeviceMode.isHasFunction_6(DeviceMode.IS_SUPPORT_MOOD_PRESSURE_FATIGUE), "ble syncMoodPressureData via function_6; vendor algorithm service is not called"));
+            root.put("hrv", flag(known, known && (DeviceMode.isHasFunction_8(DeviceMode.IS_SUPPORT_HRV_TEST) || DeviceMode.isHasFunction_11(DeviceMode.IS_SUPPORT_LOCATION_HRV)), "ble syncElHRV via function_8 or function_11; vendor algorithm service is not called"));
             root.put("sedentary", flag(known, known && DeviceMode.isHasFunction_1(DeviceMode.IS_SUPPORT_SEDENTARY_REMINDER), "flag_only_not_configured"));
             root.put("alarm", flag(known, known && (DeviceMode.isHasFunction_1(DeviceMode.IS_SUPPORT_THREE_ALARM_CLOCK) || DeviceMode.isHasFunction_6(DeviceMode.IS_SUPPORT_LABEL_ALARM_CLOCK)), "flag_only_not_configured"));
             root.put("message_display", flag(known, known && DeviceMode.isHasFunction_5(DeviceMode.IS_SUPPORT_PUSH_MESSAGE_DISPLAY), "flag_only_not_configured"));
@@ -1011,6 +1097,7 @@ public class UteBandPlugin extends Plugin {
     }
 
     private void respondToBind() {
+        main.post(() -> {
         try {
             HealthRepository repo = repo();
             String saved = repo.getMeta("device_bind_id");
@@ -1030,9 +1117,11 @@ public class UteBandPlugin extends Plugin {
             } else {
                 link.sendAccountId(id);
             }
-        } catch (RuntimeException ex) {
+        } catch (Throwable error) {
+            remember("bind", error);
             lastError = "bind_failed";
         }
+        });
     }
 
     private void publishScan(UteScanDevice device, boolean unused) {
@@ -1071,16 +1160,58 @@ public class UteBandPlugin extends Plugin {
     }
 
     private void disconnectInternal() {
-        UteBleClient client = client();
-        if (client == null) {
-            return;
-        }
+        autoSyncArmed = false;
         try {
-            if (client.isConnected()) {
+            UteBleClient client = client();
+            if (client != null && client.isConnected()) {
                 client.disconnect();
             }
         } catch (RuntimeException ex) {
             lastError = "disconnect_failed";
+        } finally {
+            link.onSdkStatus(BleConnectStateListener.STATE_DISCONNECTED);
+        }
+    }
+
+    private void disconnectQuietly() {
+        try {
+            disconnectInternal();
+        } catch (Throwable ignored) {
+            autoSyncArmed = false;
+        }
+    }
+
+    private void remember(String phase, Throwable error) {
+        if (link.phase() != BandLink.Phase.READY) {
+            lastError = "connect_failed";
+        }
+        if (getContext() == null) {
+            return;
+        }
+        try (FileOutputStream out = getContext().openFileOutput("connect-diagnostic.txt", Context.MODE_PRIVATE)) {
+            out.write(ConnectDiagnostic.format(phase, error).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // The connection is already marked failed.
+        }
+    }
+
+    private String readDiagnostic() {
+        if (getContext() == null) {
+            return "";
+        }
+        try (FileInputStream input = getContext().openFileInput("connect-diagnostic.txt")) {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[256];
+            int count;
+            int total = 0;
+            while ((count = input.read(chunk)) >= 0 && total < 4000) {
+                int take = Math.min(count, 4000 - total);
+                buffer.write(chunk, 0, take);
+                total += take;
+            }
+            return buffer.toString(StandardCharsets.UTF_8.name());
+        } catch (Exception missing) {
+            return "";
         }
     }
 
@@ -1090,8 +1221,17 @@ public class UteBandPlugin extends Plugin {
         result.put("platform", "android");
         result.put("sdk", WeiguangApp.sdkInitError() == null && client != null ? "ready" : "unavailable");
         result.put("sdkError", WeiguangApp.sdkInitError() == null ? "" : WeiguangApp.sdkInitError());
-        result.put("bluetooth", client != null && client.isBluetoothEnable() ? "on" : "off");
-        boolean connected = client != null && client.isConnected();
+        result.put("phase", link.phase().name().toLowerCase(Locale.US));
+        boolean radioOn = false;
+        boolean connected = false;
+        try {
+            radioOn = client != null && client.isBluetoothEnable();
+            connected = client != null && client.isConnected();
+        } catch (Throwable ignored) {
+            radioOn = false;
+            connected = false;
+        }
+        result.put("bluetooth", radioOn ? "on" : "off");
         result.put("connection", connected ? "connected" : "disconnected");
         result.put("scanning", scanning);
         result.put("address", connected ? currentAddress() : "");

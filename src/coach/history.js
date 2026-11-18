@@ -1,4 +1,4 @@
-const VALUE_KEYS = ['step', 'bpm', 'percent', 'hrv', 'body', 'totalMinutes', 'pressure'];
+const VALUE_KEYS = ['step', 'bpm', 'percent', 'hrv', 'body', 'totalMinutes', 'pressure', 'mood', 'fatigue'];
 
 export function numericValue(row) {
   const raw = row?.value_json ?? row?.valueJson ?? row?.value;
@@ -18,13 +18,46 @@ export function numericValue(row) {
   return null;
 }
 
+export function primaryValue(row) {
+  const value = numericValue(row);
+  if (row?.quality === 'invalid_device_value') return null;
+  if (row?.metric === 'temperature' && (value == null || value < 30 || value > 45)) return null;
+  return value;
+}
+
+export function metricPresentation({ row, known = null, supported = null, syncStatus = '' } = {}) {
+  if (primaryValue(row) != null) return { kind: 'value' };
+  if (row?.quality === 'invalid_device_value' || (row?.metric === 'temperature' && numericValue(row) != null)) {
+    return { kind: 'invalid' };
+  }
+  if (known === false) return { kind: 'unknown' };
+  if (supported === false) return { kind: 'unsupported' };
+  if (syncStatus === 'failed') return { kind: 'failed' };
+  if (syncStatus === 'success' || syncStatus === 'skipped') return { kind: 'empty' };
+  if (syncStatus === 'running') return { kind: 'running' };
+  if (syncStatus === 'not_read' || syncStatus === 'unsupported') {
+    return { kind: syncStatus === 'unsupported' ? 'unsupported' : 'unknown' };
+  }
+  return { kind: 'idle' };
+}
+
+export const METRIC_STATUS = {
+  invalid: '读数无效',
+  unsupported: '设备不支持',
+  unknown: '能力未读到',
+  failed: '同步失败',
+  empty: '没有记录',
+  running: '同步中',
+  idle: '未同步',
+};
+
 export function compareSeries(rows) {
   const points = (rows || [])
     .map((row) => ({
       row,
       at: String(row.device_sampled_at ?? row.deviceSampledAt ?? ''),
       received: Number(row.phone_received_at ?? row.phoneReceivedAt ?? 0),
-      value: numericValue(row),
+      value: primaryValue(row),
     }))
     .filter((point) => point.value != null)
     .sort((a, b) => (a.at || String(a.received)).localeCompare(b.at || String(b.received)) || a.received - b.received);

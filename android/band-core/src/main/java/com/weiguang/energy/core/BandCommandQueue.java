@@ -133,7 +133,7 @@ public final class BandCommandQueue {
         boolean doneImmediately = false;
         try {
             doneImmediately = next.starter.start();
-        } catch (RuntimeException ex) {
+        } catch (Throwable ex) {
             starting = false;
             if (active == next) {
                 active = null;

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bluetooth, Check, ChevronRight, Moon, Heart, Activity, Wind, Watch, Home, MessageCircle, CalendarDays, TrendingUp, UserRound, ArrowRight } from 'lucide-react';
 import { isAndroidApp, UteBand, WeiguangStore } from './band/native.js';
 import { assess } from './coach/quality.js';
-import { compareSeries, numericValue } from './coach/history.js';
+import { compareSeries, metricPresentation, METRIC_STATUS, primaryValue } from './coach/history.js';
 import { runDeviceCoach } from './coach/run.js';
 
 const NAV = [
@@ -28,14 +28,26 @@ function formatMs(value) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
 }
 
+const INSIGHTS = [
+  ['steps', '步数'],
+  ['heart_rate', '心率'],
+  ['spo2', '血氧'],
+  ['sleep', '睡眠'],
+  ['hrv', 'HRV'],
+  ['temperature', '体温'],
+  ['mood_pressure', '压力'],
+];
+
 function showValue(row) {
-  const value = numericValue(row);
-  if (value == null) return '未同步';
+  const value = primaryValue(row);
+  if (value == null) return METRIC_STATUS.invalid;
   if (row.metric === 'steps') return `${value} 步`;
   if (row.metric === 'heart_rate') return `${value} 次/分`;
   if (row.metric === 'spo2' || row.metric === 'battery') return `${value}%`;
   if (row.metric === 'sleep') return `${value} 分钟`;
   if (row.metric === 'temperature') return `${value} °C`;
+  if (row.metric === 'hrv') return `${value}（SDK原值）`;
+  if (row.metric === 'mood_pressure') return `压力 ${value}`;
   return String(value);
 }
 
@@ -58,6 +70,7 @@ export default function App() {
   const [proxyToken, setProxyToken] = useState('');
   const [debugModel, setDebugModel] = useState({ debug: false, configured: false });
   const [modelKey, setModelKey] = useState('');
+  const [diagnostic, setDiagnostic] = useState('');
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   const toast = (text) => { setNotice(text); window.setTimeout(() => setNotice(''), 3200); };
@@ -105,6 +118,14 @@ export default function App() {
   });
   const tasks = snap?.tasks || [];
   const activeTasks = tasks.filter((task) => task.status === 'active');
+
+  async function retrySync() {
+    const result = await UteBand.syncNow();
+    if (result?.error === 'device_busy') toast('手环忙，空闲后会再同步');
+    else if (result?.error === 'not_connected') toast('还没有连上，不能同步');
+    else toast('开始串行同步');
+    refresh();
+  }
 
   async function connect(device, previouslyChosen) {
     const result = await UteBand.connect({ address: device.address, name: device.name || '', previouslyChosen });
@@ -187,7 +208,7 @@ export default function App() {
           <div className="bottom-action">
             <button className="primary-button" disabled={!android} onClick={async () => { setScan([]); await UteBand.requestBlePermissions(); await UteBand.startScan(); refresh(); }}>扫描附近设备</button>
             <button className="text-link" onClick={async () => { await UteBand.stopScan(); refresh(); }}>停止扫描</button>
-            {band?.connection === 'connected' && <button className="text-link" onClick={async () => { await UteBand.syncNow(); toast('开始串行同步'); }}>同步电量和步数</button>}
+            {band?.connection === 'connected' && <button className="text-link" onClick={retrySync}>同步手环记录</button>}
             {band?.connection === 'connected' && <button className="text-link" onClick={async () => { await UteBand.disconnect(); refresh(); }}>断开</button>}
             {(snap?.devices || []).map((device) => <button className="text-link" key={device.address} onClick={() => connect(device, true)}>重连上次选择的 {device.name || device.address}</button>)}
           </div>
@@ -201,11 +222,10 @@ export default function App() {
             <div className="metric-row"><Watch size={17} /><span>电量</span><strong>{snap?.latest?.battery ? showValue({ ...snap.latest.battery, metric: 'battery' }) : '未同步'}</strong></div>
             {METRICS.map(([metric, Icon, label]) => {
               const row = snap?.latest?.[metric];
-              const cap = capability(snap, metric);
-              return <div className="metric-row" key={metric}><Icon size={17} /><span>{label}</span><strong>{row ? showValue({ ...row, metric }) : cap}</strong><small>{row ? `设备 ${row.device_sampled_at || '无'} · 收到 ${formatMs(row.phone_received_at)}` : ''}</small></div>;
+              return <div className="metric-row" key={metric}><Icon size={17} /><span>{label}</span><strong>{metricLabel(snap, metric, row)}</strong><small>{row ? `设备 ${row.device_sampled_at || '无'} · 收到 ${formatMs(row.phone_received_at)}` : syncNote(snap, metric)}</small></div>;
             })}
           </div>
-          <div className="hint-box">上次成功同步：{formatMs(quality.lastSuccessAt)}。收到时间、设备时间和同步时间是分开的。</div>
+          <div className="hint-box">上次成功同步：{formatMs(quality.lastSuccessAt)}。收到时间、设备时间和同步时间是分开的。<button className="text-link" onClick={retrySync}>再同步一次</button></div>
           <Section tasks={activeTasks} onOpen={() => setScreen('plan')} onToggle={async (task) => { await WeiguangStore.setTaskStatus({ id: task.id, status: task.status === 'done' ? 'active' : 'done' }); refresh(); }} />
         </div>}
 
@@ -238,8 +258,8 @@ export default function App() {
 
         {screen === 'insights' && <div className="app-screen">
           <div className="app-header centered"><h1>记录对照</h1></div>
-          <div className="segmented">{['steps', 'heart_rate', 'spo2', 'sleep'].map((metric) => <button key={metric} className={insightMetric === metric ? 'selected' : ''} onClick={() => setInsightMetric(metric)}>{metric === 'steps' ? '步数' : metric === 'heart_rate' ? '心率' : metric === 'spo2' ? '血氧' : '睡眠'}</button>)}</div>
-          <Insight series={series} />
+          <div className="segmented">{INSIGHTS.map(([metric, label]) => <button key={metric} className={insightMetric === metric ? 'selected' : ''} onClick={() => setInsightMetric(metric)}>{label}</button>)}</div>
+          <Insight series={series} status={metricLabel(snap, insightMetric, snap?.latest?.[insightMetric])} />
         </div>}
 
         {screen === 'profile' && <div className="app-screen">
@@ -268,6 +288,11 @@ export default function App() {
                 toast(saved?.configured ? '测试密钥只保存在这部手机' : '正式包不能保存测试密钥');
               }}>保存测试密钥</button>
             </>}
+          <button className="detail-choice" type="button" onClick={async () => {
+              const saved = await UteBand.exportConnectDiagnostic();
+              setDiagnostic(saved?.text || '还没有连接诊断');
+            }}>查看上次连接诊断</button>
+            {diagnostic && <pre className="diagnostic-text">{diagnostic}</pre>}
           </div>
           <button className="reset-link" onClick={async () => { if (!android) { toast('没有本地数据库'); return; } await WeiguangStore.deleteAll({ confirmed: true }); setCoach(null); refresh(); }}>删除这部手机上的微光数据</button>
         </div>}
@@ -278,19 +303,35 @@ export default function App() {
   </div>;
 }
 
-function capability(snap, metric) {
+function metricLabel(snap, metric, row) {
+  const flags = capabilityFlags(snap, metric);
+  const sync = (snap?.sync || []).find((item) => item.metric === metric);
+  const presentation = metricPresentation({
+    row: row ? { ...row, metric } : null,
+    known: flags.present ? flags.known : null,
+    supported: flags.present ? flags.supported : null,
+    syncStatus: sync?.last_status || '',
+  });
+  if (presentation.kind === 'value') return showValue({ ...row, metric });
+  return METRIC_STATUS[presentation.kind];
+}
+
+function syncNote(snap, metric) {
+  const sync = (snap?.sync || []).find((item) => item.metric === metric);
+  if (!sync?.last_attempt_at) return '';
+  return `上次尝试 ${formatMs(sync.last_attempt_at)}`;
+}
+
+function capabilityFlags(snap, metric) {
   const device = snap?.devices?.[0];
-  if (!device?.capabilities_json) return '未同步';
+  if (!device?.capabilities_json) return { present: false, known: false, supported: false };
   try {
-    const caps = JSON.parse(device.capabilities_json);
-    const item = caps[metric];
-    if (!item) return '未同步';
-    if (!item.known) return '能力未读到';
-    if (!item.supported) return '设备不支持';
+    const item = JSON.parse(device.capabilities_json)[metric];
+    if (!item) return { present: false, known: false, supported: false };
+    return { present: true, known: item.known === true, supported: item.supported === true };
   } catch {
-    return '未同步';
+    return { present: false, known: false, supported: false };
   }
-  return '未同步';
 }
 
 function Section({ tasks, onOpen, onToggle }) {
@@ -305,10 +346,10 @@ function TaskRow({ task, zone, onChanged, toast }) {
   return <div className="task-row"><button onClick={async () => { await WeiguangStore.setTaskStatus({ id: task.id, status: task.status === 'done' ? 'active' : 'done' }); onChanged(); }}><span className={`task-check ${task.status === 'done' ? 'done' : ''}`}>{task.status === 'done' && <Check size={14} />}</span></button><span><strong>{task.title}</strong><small>{task.detail || '没有补充'} · {task.source === 'user' ? '手动' : task.source}</small>{task.status === 'active' && <span className="reminder-line"><input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} /><button type="button" onClick={async () => { await UteBand.requestNotifyPermission(); const saved = await WeiguangStore.setReminder({ id: task.id, enabled: true, userConfirmed: true, reminderLocal: when.replace(' ', 'T'), repeatDaily: false, timezone: zone }); toast(saved.schedule ? '已安排一次不精确提醒' : (saved.reason || '没有安排')); onChanged(); }}>确认提醒一次</button><button type="button" onClick={async () => { await WeiguangStore.setReminder({ id: task.id, enabled: false, userConfirmed: true, timezone: zone }); onChanged(); }}>关闭提醒</button></span>}</span></div>;
 }
 
-function Insight({ series }) {
+function Insight({ series, status }) {
   const comparison = compareSeries(series);
   if (comparison.status !== 'compared') {
-    return <div className="empty-card"><strong>无足够数据</strong><p>至少需要两条真实记录才能对照。不会用演示曲线填充。</p></div>;
+    return <div className="empty-card"><strong>{status || '无足够数据'}</strong><p>至少需要两条有效记录才能对照。不会用演示曲线填充。睡眠按 SDK 的日期和时间段保存，不把跨天记录拆开。</p></div>;
   }
   return <div className="detail-panel"><strong>最近两条记录</strong><p>上一条 {comparison.previous}，最近 {comparison.latest}，相差 {comparison.delta}。</p><p>设备时间 {comparison.previousDeviceTime || '无'} → {comparison.latestDeviceTime || '无'}。</p><small>这是数值对照，不是医学判断。单点波动不当成异常。</small></div>;
 }

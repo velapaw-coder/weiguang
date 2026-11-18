@@ -22,6 +22,7 @@ export const UteBand = registerPlugin('UteBand', {
     async connect() { return { ok: false, error: 'web_unavailable' }; },
     async disconnect() { return { ok: true }; },
     async syncNow() { return { ok: false, error: 'web_unavailable' }; },
+    async exportConnectDiagnostic() { return { text: '' }; },
     async addListener() { return { remove() {} }; },
   }),
 });

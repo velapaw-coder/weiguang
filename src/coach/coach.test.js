@@ -6,7 +6,7 @@ import { createModelProxy } from '../../server/model-proxy/server.mjs';
 import { resetCoachRateLimit } from '../../server/model-proxy/protocol.mjs';
 import { restoreSaver } from './checkpoint.js';
 import { runCoach } from './graph.js';
-import { compareSeries } from './history.js';
+import { compareSeries, metricPresentation } from './history.js';
 import { assess } from './quality.js';
 import { postCoach } from './proxy-client.js';
 import { minimalSummary } from './summary.js';
@@ -159,6 +159,17 @@ describe('records', () => {
     const summary = minimalSummary({ observations: rows, goals: ['早睡'], tasks: [], question: '今天呢' });
     expect(summary.json.includes('AA:BB')).toBe(false);
     expect(summary.body.metrics[0].points).toHaveLength(2);
+  });
+
+  it('keeps implausible temperature and unsupported metrics out of the chart', () => {
+    const hot = { metric: 'temperature', quality: 'invalid_device_value', value_json: JSON.stringify({ body: 365, unit: 'celsius_sdk_float' }) };
+    const real = { metric: 'temperature', quality: 'recorded', device_sampled_at: '20261118', value_json: JSON.stringify({ body: 36.6 }) };
+    expect(compareSeries([hot, real]).status).toBe('insufficient');
+    expect(metricPresentation({ known: true, supported: false }).kind).toBe('unsupported');
+    expect(metricPresentation({ known: false, supported: false }).kind).toBe('unknown');
+    expect(metricPresentation({ known: true, supported: true, syncStatus: 'success' }).kind).toBe('empty');
+    expect(metricPresentation({ known: true, supported: true, syncStatus: 'failed' }).kind).toBe('failed');
+    expect(metricPresentation({ row: real }).kind).toBe('value');
   });
 });
 
