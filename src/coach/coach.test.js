@@ -170,6 +170,9 @@ describe('records', () => {
     expect(metricPresentation({ known: true, supported: true, syncStatus: 'success' }).kind).toBe('empty');
     expect(metricPresentation({ known: true, supported: true, syncStatus: 'failed' }).kind).toBe('failed');
     expect(metricPresentation({ row: real }).kind).toBe('value');
+    const summary = minimalSummary({ observations: [hot], goals: [], tasks: [], question: '' });
+    expect(summary.body.metrics[0].points[0].value).toBeNull();
+    expect(summary.body.metrics[0].points[0].quality).toBe('invalid_device_value');
   });
 });
 

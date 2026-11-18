@@ -1,4 +1,4 @@
-import { numericValue } from './history.js';
+import { primaryValue } from './history.js';
 
 const LIMIT = 1500;
 
@@ -16,7 +16,7 @@ export function minimalSummary({ observations = [], goals = [], tasks = [], ques
     metrics.push({
       metric,
       points: ordered.slice(0, 3).map((row) => ({
-        value: numericValue(row),
+        value: primaryValue(row),
         deviceSampledAt: row.device_sampled_at ?? row.deviceSampledAt ?? null,
         phoneReceivedAt: Number(row.phone_received_at ?? row.phoneReceivedAt ?? 0),
         quality: row.quality || 'recorded',
