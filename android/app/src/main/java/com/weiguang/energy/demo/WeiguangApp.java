@@ -28,6 +28,7 @@ public class WeiguangApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        DebugModelKeyInstall.ensure(this);
         ensureSdk(this);
         ReminderScheduler.ensureChannel(this);
     }

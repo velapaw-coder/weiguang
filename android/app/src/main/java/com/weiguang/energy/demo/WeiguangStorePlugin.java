@@ -6,6 +6,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.weiguang.energy.core.DebugModelKeyBootstrap;
 import com.weiguang.energy.core.DebugModelPoster;
 import com.weiguang.energy.core.HttpsModelTransport;
 import com.weiguang.energy.core.HealthRepository;
@@ -153,11 +154,13 @@ public class WeiguangStorePlugin extends Plugin {
 
     @PluginMethod
     public void debugModelStatus(PluginCall call) {
+        DebugModelKeyInstall.ensure(getContext());
         call.resolve(debugStatus());
     }
 
     @PluginMethod
     public void setDebugModelKey(PluginCall call) {
+        DebugModelKeyInstall.ensure(getContext());
         if (!debugBuild()) {
             call.resolve(error("release_direct_disabled"));
             return;
@@ -172,6 +175,7 @@ public class WeiguangStorePlugin extends Plugin {
 
     @PluginMethod
     public void postDebugModel(PluginCall call) {
+        DebugModelKeyInstall.ensure(getContext());
         String body = call.getString("body", "");
         try {
             DebugModelPoster.Outcome outcome = DebugModelPoster.send(
@@ -278,8 +282,8 @@ public class WeiguangStorePlugin extends Plugin {
         return latest;
     }
 
-    private static final String DEBUG_PREFS = "weiguang_debug_model";
-    private static final String DEBUG_KEY = "api_key";
+    private static final String DEBUG_PREFS = DebugModelKeyBootstrap.PREFS_NAME;
+    private static final String DEBUG_KEY = DebugModelKeyBootstrap.PREFS_KEY;
 
     private HealthRepository repo() {
         return WeiguangStores.get(getContext());
