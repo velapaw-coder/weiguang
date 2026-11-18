@@ -189,5 +189,11 @@ describe('source guard', () => {
     expect(scheduler.includes('AlarmManager.RTC')).toBe(true);
     expect(app.includes('李明')).toBe(false);
     expect(app.includes('mockReply')).toBe(false);
+    expect(app.includes('开启我的美好节奏')).toBe(true);
+    expect(app.includes('健康洞察')).toBe(true);
+    expect(app.includes('30 天睡眠与精力改善计划')).toBe(true);
+    expect(app.includes('6,842')).toBe(false);
+    expect(plugin.includes('onStepSyncSuccess')).toBe(true);
+    expect(plugin.slice(plugin.indexOf('onStepSyncSuccess'), plugin.indexOf('onStepSyncSuccess') + 180)).toContain('onBandThread');
   });
 });

@@ -19,6 +19,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.weiguang.energy.core.BandCommandQueue;
+import com.weiguang.energy.core.CallbackFence;
 import com.weiguang.energy.core.BandLink;
 import com.weiguang.energy.core.ConnectDiagnostic;
 import com.weiguang.energy.core.HealthRepository;
@@ -473,113 +474,141 @@ public class UteBandPlugin extends Plugin {
                 });
             }
         });
-        session.setSimpleCallbackListener((result, status) -> {
+        session.setSimpleCallbackListener((result, status) -> onBandThread("simple", () -> {
             if (status == SimpleCallbackListener.BIND_CONNECT_SEND_ACCOUNT_ID && result) {
                 respondToBind();
             }
             if (status == SimpleCallbackListener.SYNC_DEVICE_TIME) {
                 finishCommand("time", result, result ? null : "time_failed");
             }
-        });
+        }));
         session.setDeviceFirmwareVersionListener(new DeviceFirmwareVersionListener() {
             @Override
             public void queryFirmwareVersionSuccess(String firmwareVersion) {
-                repo().upsertDevice(currentAddress(), safeName(), firmwareVersion, null, null, capabilityJson(), System.currentTimeMillis(), System.currentTimeMillis());
-                saveCapabilities();
-                finishCommand("firmware", true, null);
+                onBandThread("sdk", () -> {                    repo().upsertDevice(currentAddress(), safeName(), firmwareVersion, null, null, capabilityJson(), System.currentTimeMillis(), System.currentTimeMillis());
+                    saveCapabilities();
+                    finishCommand("firmware", true, null);
+            
+                });
             }
 
             @Override
             public void queryFirmwareVersionFail() {
-                finishCommand("firmware", false, "firmware_failed");
+                onBandThread("sdk", () -> {                    finishCommand("firmware", false, "firmware_failed");
+            
+                });
             }
         });
         session.setDeviceParamListener(new DeviceParamListener() {
             @Override
             public <T> void onQueryDeviceParam(boolean ok, int type, T value) {
-                if (type == DeviceParamListener.QUERY_SN_CODE) {
-                    if (ok && value != null) {
-                        repo().upsertDevice(currentAddress(), null, null, null, String.valueOf(value), null, null, System.currentTimeMillis());
+                onBandThread("sdk", () -> {                    if (type == DeviceParamListener.QUERY_SN_CODE) {
+                        if (ok && value != null) {
+                            repo().upsertDevice(currentAddress(), null, null, null, String.valueOf(value), null, null, System.currentTimeMillis());
+                        }
+                        finishCommand("sn", ok, ok ? null : "sn_failed");
                     }
-                    finishCommand("sn", ok, ok ? null : "sn_failed");
-                }
+            
+                });
             }
         });
         session.setDeviceBatteryListener(new DeviceBatteryListener() {
             @Override
             public void queryDeviceBatterySuccess(int battery) {
-                storeBattery(battery, batteryState);
-                finishCommand("battery", true, null);
+                onBandThread("sdk", () -> {                    storeBattery(battery, batteryState);
+                    finishCommand("battery", true, null);
+            
+                });
             }
 
             @Override
             public void queryDeviceBatteryFail() {
-                finishCommand("battery", false, "battery_failed");
+                onBandThread("sdk", () -> {                    finishCommand("battery", false, "battery_failed");
+            
+                });
             }
 
             @Override
             public void onBatteryChange(int battery, int state) {
-                storeBattery(battery, state);
-                emit("battery", state());
+                onBandThread("sdk", () -> {                    storeBattery(battery, state);
+                    emit("battery", state());
+            
+                });
             }
         });
         session.setStepChangeListener(new StepChangeListener() {
             @Override
             public void onStepChange(StepOneDayAllInfo info) {
-                storeSteps(info);
+                onBandThread("sdk", () -> {                    storeSteps(info);
+            
+                });
             }
 
             @Override
             public void onStepSyncSuccess(List<StepOneDayAllInfo> list) {
-                String cursor = null;
-                if (list != null) {
-                    for (StepOneDayAllInfo info : list) {
-                        storeSteps(info);
-                        if (info.getCalendar() != null) {
-                            cursor = info.getCalendar();
+                onBandThread("sdk", () -> {                    String cursor = null;
+                    if (list != null) {
+                        for (StepOneDayAllInfo info : list) {
+                            storeSteps(info);
+                            if (info.getCalendar() != null) {
+                                cursor = info.getCalendar();
+                            }
                         }
                     }
-                }
-                markSync("steps", "success", null, cursor);
-                queue.succeed("steps");
-                emit("synced", state());
+                    markSync("steps", "success", null, cursor);
+                    queue.succeed("steps");
+                    emit("synced", state());
+            
+                });
             }
 
             @Override
             public void onStepSyncing() {
-                emit("syncing", state());
+                onBandThread("sdk", () -> {                    emit("syncing", state());
+            
+                });
             }
 
             @Override
             public void onStepSyncFail() {
-                finishCommand("steps", false, "steps_failed");
+                onBandThread("sdk", () -> {                    finishCommand("steps", false, "steps_failed");
+            
+                });
             }
         });
         session.setSleepChangeListener(new SleepChangeListener() {
             @Override
             public void onSleepSyncSuccess(List<SleepInfo> list) {
-                if (list != null) {
-                    for (SleepInfo info : list) {
-                        storeSleep(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (SleepInfo info : list) {
+                            storeSleep(info);
+                        }
                     }
-                }
-                finishCommand("sleep", true, null);
+                    finishCommand("sleep", true, null);
+            
+                });
             }
 
             @Override
             public void onCyweeSleepSyncSuccess(List<com.yc.utesdk.bean.CyweeSleepTimeInfo> list) {
-                markSync("sleep", "unsupported_format", "cywee_sleep_not_mapped", null);
-                queue.succeed("sleep");
+                onBandThread("sdk", () -> {                    markSync("sleep", "unsupported_format", "cywee_sleep_not_mapped", null);
+                    queue.succeed("sleep");
+            
+                });
             }
 
             @Override
             public void onSleepSyncing() {
-                emit("syncing", state());
+                onBandThread("sdk", () -> {                    emit("syncing", state());
+            
+                });
             }
 
             @Override
             public void onSleepSyncFail() {
-                finishCommand("sleep", false, "sleep_failed");
+                onBandThread("sdk", () -> {                    finishCommand("sleep", false, "sleep_failed");
+            
+                });
             }
 
             @Override
@@ -594,7 +623,9 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onHeartRateRealTime(HeartRateInfo info) {
-                storeHeart(info);
+                onBandThread("sdk", () -> {                    storeHeart(info);
+            
+                });
             }
 
             @Override
@@ -611,12 +642,14 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onHeartRateSyncSuccess(List<HeartRateInfo> list) {
-                if (list != null) {
-                    for (HeartRateInfo info : list) {
-                        storeHeart(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (HeartRateInfo info : list) {
+                            storeHeart(info);
+                        }
                     }
-                }
-                finishCommand("heart_rate", true, null);
+                    finishCommand("heart_rate", true, null);
+            
+                });
             }
 
             @Override
@@ -625,12 +658,16 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onHeartRateSyncFail() {
-                finishCommand("heart_rate", false, "heart_failed");
+                onBandThread("sdk", () -> {                    finishCommand("heart_rate", false, "heart_failed");
+            
+                });
             }
 
             @Override
             public void onHeartRateRestSyncSuccess(List<com.yc.utesdk.bean.HeartRateRestInfo> list) {
-                finishCommand("resting_heart_rate", true, null);
+                onBandThread("sdk", () -> {                    finishCommand("resting_heart_rate", true, null);
+            
+                });
             }
 
             @Override
@@ -639,7 +676,9 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onHeartRateRestSyncFail() {
-                finishCommand("resting_heart_rate", false, "resting_heart_failed");
+                onBandThread("sdk", () -> {                    finishCommand("resting_heart_rate", false, "resting_heart_failed");
+            
+                });
             }
         });
         session.setOxygenChangeListener(new OxygenChangeListener() {
@@ -649,17 +688,21 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onOxygenRealTime(OxygenInfo info) {
-                storeOxygen(info);
+                onBandThread("sdk", () -> {                    storeOxygen(info);
+            
+                });
             }
 
             @Override
             public void onOxygenSyncSuccess(List<OxygenInfo> list) {
-                if (list != null) {
-                    for (OxygenInfo info : list) {
-                        storeOxygen(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (OxygenInfo info : list) {
+                            storeOxygen(info);
+                        }
                     }
-                }
-                finishCommand("spo2", true, null);
+                    finishCommand("spo2", true, null);
+            
+                });
             }
 
             @Override
@@ -668,7 +711,9 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onOxygenSyncFail() {
-                finishCommand("spo2", false, "spo2_failed");
+                onBandThread("sdk", () -> {                    finishCommand("spo2", false, "spo2_failed");
+            
+                });
             }
         });
         session.setTemperatureChangeListener(new TemperatureChangeListener() {
@@ -678,17 +723,21 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onTemperatureRealTime(TemperatureInfo info) {
-                storeTemperature(info);
+                onBandThread("sdk", () -> {                    storeTemperature(info);
+            
+                });
             }
 
             @Override
             public void onTemperatureSyncSuccess(List<TemperatureInfo> list) {
-                if (list != null) {
-                    for (TemperatureInfo info : list) {
-                        storeTemperature(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (TemperatureInfo info : list) {
+                            storeTemperature(info);
+                        }
                     }
-                }
-                finishCommand("temperature", true, null);
+                    finishCommand("temperature", true, null);
+            
+                });
             }
 
             @Override
@@ -697,7 +746,9 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onTemperatureSyncFail() {
-                finishCommand("temperature", false, "temperature_failed");
+                onBandThread("sdk", () -> {                    finishCommand("temperature", false, "temperature_failed");
+            
+                });
             }
         });
         session.setMoodPressureListener(new MoodPressureListener() {
@@ -707,17 +758,21 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onMoodPressureRealTime(MoodPressureFatigueInfo info) {
-                storeMood(info);
+                onBandThread("sdk", () -> {                    storeMood(info);
+            
+                });
             }
 
             @Override
             public void onMoodPressureSyncSuccess(List<MoodPressureFatigueInfo> list) {
-                if (list != null) {
-                    for (MoodPressureFatigueInfo info : list) {
-                        storeMood(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (MoodPressureFatigueInfo info : list) {
+                            storeMood(info);
+                        }
                     }
-                }
-                finishCommand("mood_pressure", true, null);
+                    finishCommand("mood_pressure", true, null);
+            
+                });
             }
 
             @Override
@@ -726,7 +781,9 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onMoodPressureSyncFail() {
-                finishCommand("mood_pressure", false, "mood_failed");
+                onBandThread("sdk", () -> {                    finishCommand("mood_pressure", false, "mood_failed");
+            
+                });
             }
 
             @Override
@@ -744,12 +801,14 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onElHRVSyncSuccess(List<HrvInfo> list) {
-                if (list != null) {
-                    for (HrvInfo info : list) {
-                        storeHrv(info);
+                onBandThread("sdk", () -> {                    if (list != null) {
+                        for (HrvInfo info : list) {
+                            storeHrv(info);
+                        }
                     }
-                }
-                finishCommand("hrv", true, null);
+                    finishCommand("hrv", true, null);
+            
+                });
             }
 
             @Override
@@ -758,11 +817,28 @@ public class UteBandPlugin extends Plugin {
 
             @Override
             public void onElHRVSyncFail() {
-                finishCommand("hrv", false, "hrv_failed");
+                onBandThread("sdk", () -> {                    finishCommand("hrv", false, "hrv_failed");
+            
+                });
             }
 
             @Override
             public <T> void onAutoHRVStatus(boolean result, int status, T value) {
+            }
+        });
+    }
+
+
+    private void onBandThread(String phase, Runnable work) {
+        main.post(() -> {
+            boolean ok = CallbackFence.run(work, error -> {
+                remember(phase, error);
+                autoSyncArmed = false;
+                queue.failAll("callback_failed");
+                emit("connection", errorObject("callback_failed"));
+            });
+            if (!ok) {
+                link.failed();
             }
         });
     }
@@ -1199,7 +1275,15 @@ public class UteBandPlugin extends Plugin {
         if (getContext() == null) {
             return "";
         }
-        try (FileInputStream input = getContext().openFileInput("connect-diagnostic.txt")) {
+        String exit = readPrivate("connect-exit.txt");
+        String crash = readPrivate("connect-diagnostic.txt");
+        if (exit.isEmpty()) return crash;
+        if (crash.isEmpty()) return exit;
+        return exit + "\n" + crash;
+    }
+
+    private String readPrivate(String name) {
+        try (FileInputStream input = getContext().openFileInput(name)) {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
             byte[] chunk = new byte[256];
             int count;

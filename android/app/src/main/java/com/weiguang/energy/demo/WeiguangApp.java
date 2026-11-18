@@ -1,12 +1,16 @@
 package com.weiguang.energy.demo;
 
+import android.app.ActivityManager;
 import android.app.Application;
+import android.app.ApplicationExitInfo;
+import android.os.Build;
 
 import com.weiguang.energy.core.ConnectDiagnostic;
 import com.yc.utesdk.ble.open.UteBleClient;
 
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public class WeiguangApp extends Application {
     private static String sdkInitError;
@@ -32,10 +36,39 @@ public class WeiguangApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        rememberPreviousExit();
         rememberUncaught();
         DebugModelKeyInstall.ensure(this);
         ensureSdk(this);
         ReminderScheduler.ensureChannel(this);
+    }
+
+    private void rememberPreviousExit() {
+        if (Build.VERSION.SDK_INT < 30) {
+            return;
+        }
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(getPackageName(), 0, 1);
+            if (exits == null || exits.isEmpty()) {
+                return;
+            }
+            ApplicationExitInfo info = exits.get(0);
+            String description = info.getDescription() == null ? "" : ConnectDiagnostic.redact(info.getDescription());
+            if (description.length() > 160) {
+                description = description.substring(0, 160);
+            }
+            String text = "phase=previous_exit\nsdk=" + Build.VERSION.SDK_INT
+                    + "\nreason=" + info.getReason()
+                    + "\nimportance=" + info.getImportance()
+                    + "\nstatus=" + info.getStatus()
+                    + "\ndescription=" + description + "\n";
+            try (FileOutputStream out = openFileOutput("connect-exit.txt", MODE_PRIVATE)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Throwable ignored) {
+            // Exit history is optional. Do not block startup.
+        }
     }
 
     private void rememberUncaught() {
