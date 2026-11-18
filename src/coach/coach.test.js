@@ -1,10 +1,14 @@
+import { once } from 'node:events';
 import { MemorySaver } from '@langchain/langgraph';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { createModelProxy } from '../../server/model-proxy/server.mjs';
+import { resetCoachRateLimit } from '../../server/model-proxy/volc-proxy.mjs';
 import { restoreSaver } from './checkpoint.js';
 import { runCoach } from './graph.js';
 import { compareSeries } from './history.js';
 import { assess } from './quality.js';
+import { postCoach } from './proxy-client.js';
 import { minimalSummary } from './summary.js';
 
 const steps = [{
@@ -63,6 +67,45 @@ describe('local coach', () => {
     expect(result.values.modelStatus).toBe('model_failed');
     expect(result.values.modelText).toBe('');
     expect(result.values.proposals[0].source).toBe('local_rule');
+  });
+
+  it('parses a stubbed Responses reply through the proxy and LangGraph', async () => {
+    resetCoachRateLimit();
+    const seen = [];
+    const server = createModelProxy({
+      env: { MODEL_PROXY_TOKEN: 'gate', VOLC_ARK_API_KEY: 'server-key' },
+      fetchImpl: async (_url, init) => {
+        seen.push(JSON.parse(init.body));
+        const text = '先看已同步的步数。\n{"proposals":[{"title":"出门走一走","detail":"对照这次步数"}]}';
+        return new Response(JSON.stringify({
+          status: 'completed',
+          output_text: text,
+          output: [{ type: 'message', status: 'completed', content: [{ type: 'output_text', text }] }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      const result = await runCoach({
+        observations: steps, goals: [], tasks: [], sync: [], consent: true, proxyConfigured: true, online: true,
+        turns: [{ role: 'assistant', text: '上次只是提醒记录' }],
+      }, {
+        callModel: ({ summary, turns }) => postCoach({ proxyUrl: base, proxyToken: 'gate', summary, turns }),
+      });
+      expect(seen[0].store).toBe(false);
+      expect(seen[0].previous_response_id).toBeUndefined();
+      expect(seen[0].tools).toBeUndefined();
+      expect(seen[0].model).toBe('doubao-seed-2-1-lite-260915');
+      expect(result.values.modelStatus).toBe('ok');
+      expect(result.values.modelText).toContain('已同步的步数');
+      expect(result.values.proposals[0].title).toBe('出门走一走');
+      expect(result.values.proposals[0].source).toBe('langgraph');
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
   });
 
   it('restores LangGraph checkpoint bytes from JSON', async () => {

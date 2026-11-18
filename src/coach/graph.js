@@ -14,6 +14,7 @@ const CoachState = Annotation.Root({
   consent: Annotation({ reducer: (_left, right) => Boolean(right), default: () => false }),
   proxyConfigured: Annotation({ reducer: (_left, right) => Boolean(right), default: () => false }),
   online: Annotation({ reducer: (_left, right) => right !== false, default: () => true }),
+  turns: Annotation({ reducer: (_left, right) => right ?? [], default: () => [] }),
   now: Annotation({ reducer: (_left, right) => right ?? Date.now(), default: () => Date.now() }),
   quality: Annotation({ reducer: (_left, right) => right ?? {}, default: () => ({}) }),
   minimalSummary: Annotation({ reducer: (_left, right) => right ?? '', default: () => '' }),
@@ -71,6 +72,7 @@ export function buildCoachGraph(deps) {
         consent: loaded.consent ?? state.consent,
         proxyConfigured: loaded.proxyConfigured ?? state.proxyConfigured,
         online: loaded.online ?? state.online,
+        turns: loaded.turns ?? state.turns,
       };
     })
     .addNode('checkQuality', (state) => {
@@ -83,7 +85,7 @@ export function buildCoachGraph(deps) {
     })
     .addNode('askModel', async (state) => {
       try {
-        const response = await deps.callModel(state.minimalSummary);
+        const response = await deps.callModel({ summary: state.minimalSummary, turns: state.turns || [] });
         const status = response?.status || 'model_failed';
         const modelProposals = status === 'ok' && Array.isArray(response.proposals)
           ? response.proposals.map((item) => ({ ...item, source: 'langgraph' }))

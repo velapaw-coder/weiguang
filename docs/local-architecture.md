@@ -19,7 +19,7 @@ CloudBase 方案已停用。不创建、不修改腾讯云资源。
 - 因此同一套 LangGraph 图会随 Capacitor 的 `dist` 进入安卓 WebView。这还不是在真机 WebView 里点过一次的记录。
 - `:band-core:test` 6 项通过。`:app:assembleDebug` 成功，调试包约 15 MB。包内清单没有 demo 的 YCAPPKEY。没有手环，不能把这次编译说成已经连上设备。调试包含厂商库，不放进公开仓库，也不附在 PR 上。
 
-模型代理 `server/model-proxy/server.mjs` 不写数据库。它校验代理令牌、限制请求大小和频率，并在 20 秒后超时。火山密钥、基址和模型名只来自环境变量。没有配齐就返回 `model_unconfigured`。
+模型代理是 `server/model-proxy/volc-proxy.mjs`。它不写数据库。请求使用方舟 Responses 接口，并且每次 `store: false`，不传 `previous_response_id` 或搜索工具。多轮上下文来自手机本地的教练文字。没有火山密钥时返回 `model_unconfigured`。
 
 ## 任务和提醒
 
@@ -35,5 +35,5 @@ CloudBase 方案已停用。不创建、不修改腾讯云资源。
 - 久坐、闹钟、来电和短信只报告能力位，不写入手环。
 - 不读取或设置自动测量间隔。
 - 情绪算法激活依赖厂商服务和密钥，未接入。
-- 模型代理没有部署。
+- 模型代理没有部署。拿到 HTTPS 地址之前不重新打包 APK。手机上的最后一跳仍要填写这个地址和测试闸门。真实模型问答已由父侧对通用接口测过，本仓库的集成测试使用桩响应，不能说应用已经问通过模型。
 - 公开 CI 没有厂商库，不能把安卓打包标成成功。

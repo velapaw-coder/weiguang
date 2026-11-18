@@ -12,13 +12,13 @@ npm test
 npm run build
 ```
 
-模型代理只在你提供环境变量后启动，不会自己申请云资源：
+模型代理还没部署。本地试验时只在环境变量里放密钥，不会写入代码：
 
 ```bash
-MODEL_PROXY_TOKEN=... VOLC_ARK_API_KEY=... VOLC_ARK_BASE_URL=... VOLC_ARK_MODEL=... node server/model-proxy/server.mjs
+MODEL_PROXY_TOKEN=... VOLC_ARK_API_KEY=... node server/model-proxy/server.mjs
 ```
 
-任一火山变量缺失时，代理返回 `model_unconfigured`，不会请求上游。
+模型默认是 `doubao-seed-2-1-lite-260915`，地址默认是方舟 Responses 接口。没有火山密钥时返回 `model_unconfigured`。部署步骤见 `docs/model-proxy.md`。
 
 安卓调试包需要私有 SDK，见 `docs/private-sdk.md`。没有该 aar 时，`:app:assembleDebug` 会失败，不会改用模拟 SDK。
 
@@ -31,3 +31,4 @@ MODEL_PROXY_TOKEN=... VOLC_ARK_API_KEY=... VOLC_ARK_BASE_URL=... VOLC_ARK_MODEL=
 - `docs/sdk-capabilities.md`：SDK 与 demo 的能力对照
 - `docs/private-sdk.md`：私有 SDK 安装
 - `docs/local-architecture.md`：本机架构、提醒和未做的边界
+- `docs/model-proxy.md`：方舟 Responses 代理和待部署步骤

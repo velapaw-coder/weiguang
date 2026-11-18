@@ -1,0 +1,13 @@
+{
+  "name": "weiguang-model-proxy",
+  "main": "volc-proxy.mjs",
+  "compatibility_date": "2026-11-18",
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  },
+  "vars": {
+    "VOLC_ARK_MODEL": "doubao-seed-2-1-lite-260915",
+    "VOLC_ARK_RESPONSES_URL": "https://ark.cn-beijing.volces.com/api/v3/responses"
+  }
+}

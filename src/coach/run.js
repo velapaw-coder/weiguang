@@ -1,4 +1,5 @@
 import { runCoach } from './graph.js';
+import { localTurns, postCoach } from './proxy-client.js';
 
 export async function runDeviceCoach({ question, snapshot, observations, consent, proxyUrl, proxyToken, online }) {
   const configured = Boolean(proxyUrl && proxyToken);
@@ -16,25 +17,9 @@ export async function runDeviceCoach({ question, snapshot, observations, consent
       consent: consent === true,
       proxyConfigured: configured,
       online: online !== false,
+      turns: localTurns(snapshot?.coachResults),
     }),
-    callModel: async (summary) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
-      try {
-        const response = await fetch(`${proxyUrl.replace(/\/$/, '')}/v1/coach`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${proxyToken}`,
-          },
-          body: JSON.stringify({ summary }),
-          signal: controller.signal,
-        });
-        return response.json();
-      } finally {
-        clearTimeout(timer);
-      }
-    },
+    callModel: ({ summary, turns }) => postCoach({ proxyUrl, proxyToken, summary, turns }),
     persist: async ({ values, checkpointJson, summaryJson }) => {
       const { WeiguangStore, isAndroidApp } = await import('../band/native.js');
       if (!isAndroidApp()) return;

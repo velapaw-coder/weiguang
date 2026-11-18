@@ -249,7 +249,7 @@ export default function App() {
           </form>
           <div className="detail-panel">
             <strong>模型</strong>
-            <p>火山密钥只放在未部署的代理环境变量里，不会写进 APK。这里只保存你自己填写的代理地址和代理令牌。</p>
+            <p>火山密钥只在代理上。这里的地址和令牌只保存在这部手机。令牌是内部测试用的共用闸门，不是登录账号，也不能区分使用者。正式使用要另做用户登录。代理还没部署时，教练只能用手写任务和本地规则。</p>
             <label className="detail-choice"><input type="checkbox" checked={consent} onChange={async (event) => { const next = event.target.checked; setConsent(next); if (android) await WeiguangStore.setMeta({ key: 'ai_consent', value: next ? 'yes' : 'no' }); }} /> 允许把最小摘要发给代理</label>
             <input value={proxyUrl} onChange={(event) => setProxyUrl(event.target.value)} placeholder="https://代理地址" />
             <input value={proxyToken} onChange={(event) => setProxyToken(event.target.value)} placeholder="代理令牌，不是火山密钥" />
