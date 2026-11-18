@@ -13,5 +13,6 @@ keyboard-check.png
 .env
 .env.*
 .dev.vars
+.wrangler/
 private-sdks/
 vendor/
