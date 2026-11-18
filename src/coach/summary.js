@@ -31,7 +31,9 @@ export function minimalSummary({ observations = [], goals = [], tasks = [], ques
     tasks: { active, done },
     pendingSync: Boolean(quality?.pendingSync),
     metrics,
-    boundary: '非诊断。不要安排通知或设备命令。缺数就说明不足。',
+    boundary: metrics.some((metric) => metric.points.some((point) => point.value != null))
+      ? '非诊断。不要安排通知或设备命令。缺数就说明不足。'
+      : '没有手环数值。不要编造指标，不要把这次回答说成健康分析。非诊断。不要安排通知或设备命令。',
   };
   let json = JSON.stringify(body);
   while (json.length > LIMIT && body.metrics.some((metric) => metric.points.length > 1)) {

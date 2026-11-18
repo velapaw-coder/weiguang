@@ -20,6 +20,23 @@ const steps = [{
 }];
 
 describe('local coach', () => {
+  it('answers a greeting when no samples exist and does not keep an invented analysis', async () => {
+    let summary = '';
+    const result = await runCoach({
+      question: '你好',
+      observations: [], goals: [], tasks: [], sync: [], consent: true, proxyConfigured: true, online: true,
+    }, {
+      callModel: async ({ summary: sent }) => {
+        summary = sent;
+        return { status: 'ok', text: '你好。现在没有手环记录。', proposals: [{ title: '假步数任务', detail: '步数 9000' }] };
+      },
+    });
+    expect(summary).toContain('没有手环数值');
+    expect(summary).not.toContain('9000');
+    expect(result.values.modelText).toContain('你好');
+    expect(result.values.proposals).toEqual([]);
+  });
+
   it('does not invent tasks or call the model when no samples exist', async () => {
     let called = false;
     const result = await runCoach({

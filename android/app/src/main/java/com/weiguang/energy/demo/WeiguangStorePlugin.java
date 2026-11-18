@@ -7,6 +7,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.weiguang.energy.core.DebugModelPoster;
+import com.weiguang.energy.core.HttpsModelTransport;
 import com.weiguang.energy.core.HealthRepository;
 import com.weiguang.energy.core.ReminderPolicy;
 
@@ -302,23 +303,7 @@ public class WeiguangStorePlugin extends Plugin {
     }
 
     private DebugModelPoster.Response postHttps(String url, String authorization, String body) throws Exception {
-        java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-        try {
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(20000);
-            connection.setRequestMethod("POST");
-            connection.setDoOutput(true);
-            connection.setRequestProperty("content-type", "application/json");
-            connection.setRequestProperty("authorization", authorization);
-            byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            connection.setFixedLengthStreamingMode(bytes.length);
-            connection.getOutputStream().write(bytes);
-            int status = connection.getResponseCode();
-            java.io.InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            return new DebugModelPoster.Response(status, readText(stream));
-        } finally {
-            connection.disconnect();
-        }
+        return HttpsModelTransport.INSTANCE.post(url, authorization, body);
     }
 
     private static String zone(PluginCall call) {
@@ -327,19 +312,6 @@ public class WeiguangStorePlugin extends Plugin {
             return java.time.ZoneId.systemDefault().getId();
         }
         return zone;
-    }
-
-    private static String readText(java.io.InputStream stream) throws Exception {
-        if (stream == null) {
-            return "";
-        }
-        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
-        byte[] chunk = new byte[4096];
-        int count;
-        while ((count = stream.read(chunk)) >= 0) {
-            buffer.write(chunk, 0, count);
-        }
-        return new String(buffer.toByteArray(), "UTF-8");
     }
 
     private static JSObject error(String code) {

@@ -1,6 +1,12 @@
 package com.weiguang.energy.core;
 
+import com.sun.net.httpserver.HttpServer;
 import org.junit.Test;
+
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -52,5 +58,37 @@ public class DebugModelPosterTest {
         assertEquals("bad_contract", DebugModelPoster.send(true, "secret-key", DebugModelPoster.RESPONSES_URL, BODY.replace("false", "true"), transport).reason);
         assertEquals("bad_contract", DebugModelPoster.send(true, "secret-key", DebugModelPoster.RESPONSES_URL, BODY + "secret-key", transport).reason);
         assertEquals(0, calls[0]);
+    }
+
+    @Test
+    public void apkTransportPostsToALocalServerWithoutNeedingAndroid() throws Exception {
+        AtomicReference<String> seenBody = new AtomicReference<>("");
+        AtomicReference<String> seenType = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/responses", exchange -> {
+            seenType.set(exchange.getRequestHeaders().getFirst("content-type"));
+            seenBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "{\"status\":\"completed\",\"output_text\":\"ok\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(response);
+            }
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/responses";
+            DebugModelPoster.Response response = new HttpsModelTransport().post(url, "Bearer harness-key", DebugModelProbe.requestBody());
+            assertEquals(200, response.status);
+            assertEquals(true, DebugModelProbe.completed(response.body));
+            assertEquals(true, DebugModelProbe.answer(response.body));
+            assertEquals(true, seenBody.get().contains("\"store\":false"));
+            assertEquals("application/json", seenType.get());
+            assertEquals(false, seenBody.get().contains("harness-key"));
+            assertEquals("bad_url", DebugModelPoster.send(true, "harness-key", url, seenBody.get(), (target, authorization, body) -> {
+                throw new AssertionError("poster must keep the official url");
+            }).reason);
+        } finally {
+            server.stop(0);
+        }
     }
 }

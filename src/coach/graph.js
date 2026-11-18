@@ -87,7 +87,8 @@ export function buildCoachGraph(deps) {
       try {
         const response = await deps.callModel({ summary: state.minimalSummary, turns: state.turns || [] });
         const status = response?.status || 'model_failed';
-        const modelProposals = status === 'ok' && Array.isArray(response.proposals)
+        const health = state.quality?.hasAnySample;
+        const modelProposals = health && status === 'ok' && Array.isArray(response.proposals)
           ? response.proposals.map((item) => ({ ...item, source: 'langgraph' }))
           : [];
         return {
@@ -119,9 +120,11 @@ export function buildCoachGraph(deps) {
     .addEdge(START, 'loadRecords')
     .addEdge('loadRecords', 'checkQuality')
     .addEdge('checkQuality', 'buildSummary')
-    .addConditionalEdges('buildSummary', (state) => (
-      state.quality?.hasAnySample && state.consent && state.proxyConfigured && state.online ? 'askModel' : 'localDraft'
-    ), { askModel: 'askModel', localDraft: 'localDraft' })
+    .addConditionalEdges('buildSummary', (state) => {
+      const modelReady = state.consent && state.proxyConfigured && state.online;
+      const greeting = String(state.question || '').trim().length > 0;
+      return modelReady && (state.quality?.hasAnySample || greeting) ? 'askModel' : 'localDraft';
+    }, { askModel: 'askModel', localDraft: 'localDraft' })
     .addEdge('askModel', 'review')
     .addEdge('localDraft', 'review')
     .addEdge('review', END);
