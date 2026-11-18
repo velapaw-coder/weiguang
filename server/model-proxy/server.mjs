@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { handleCoachRequest } from './volc-proxy.mjs';
+import { handleCoachRequest } from './protocol.mjs';
 
 export function createModelProxy({ env = process.env, fetchImpl = fetch, log = () => {} } = {}) {
   return http.createServer(async (request, response) => {

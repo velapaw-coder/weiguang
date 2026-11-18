@@ -9,7 +9,7 @@ import {
   handleCoachRequest,
   interpretResponses,
   resetCoachRateLimit,
-} from './volc-proxy.mjs';
+} from './protocol.mjs';
 
 const env = {
   MODEL_PROXY_TOKEN: 'proxy-token',
@@ -146,6 +146,23 @@ test('missing gate, missing key, wrong token, oversized body, and upstream timeo
     });
     assert.equal((await failed.json()).status, 'model_failed');
     assert.equal(logs.some((line) => line.includes('secret-marker') || line.includes('server-key')), false);
+  });
+});
+
+test('authenticated GET and POST stay controlled when the volcano key is absent', async () => {
+  resetCoachRateLimit();
+  await withServer({ env: { MODEL_PROXY_TOKEN: 'proxy-token' }, fetchImpl: async () => { throw new Error('should not run'); } }, async (base) => {
+    const open = await fetch(`${base}/`);
+    assert.equal(open.status, 401);
+    const authedGet = await fetch(`${base}/`, { headers: { authorization: 'Bearer proxy-token' } });
+    assert.equal((await authedGet.json()).status, 'model_unconfigured');
+    const authedPost = await fetch(`${base}/v1/coach`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer proxy-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ summary: 'secret-marker' }),
+    });
+    assert.equal(authedPost.status, 200);
+    assert.equal((await authedPost.json()).status, 'model_unconfigured');
   });
 });
 

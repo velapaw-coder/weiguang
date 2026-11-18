@@ -12,5 +12,6 @@ home-mobile.png
 keyboard-check.png
 .env
 .env.*
+.dev.vars
 private-sdks/
 vendor/

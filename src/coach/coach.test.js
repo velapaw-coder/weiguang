@@ -3,7 +3,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createModelProxy } from '../../server/model-proxy/server.mjs';
-import { resetCoachRateLimit } from '../../server/model-proxy/volc-proxy.mjs';
+import { resetCoachRateLimit } from '../../server/model-proxy/protocol.mjs';
 import { restoreSaver } from './checkpoint.js';
 import { runCoach } from './graph.js';
 import { compareSeries } from './history.js';

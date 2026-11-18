@@ -10,16 +10,21 @@
 
 ## 交给部署的人
 
-单文件入口：`server/model-proxy/volc-proxy.mjs`。配置：`server/model-proxy/wrangler.jsonc`。本地 Node 包装只用于测试：`server/model-proxy/server.mjs`。
+Worker 入口只能有 `export default { fetch }`。workerd 会把每个具名导出当成处理函数；之前的 `export const DEFAULT_MODEL` 是字符串，模块加载时抛出 `Incorrect type for map entry 'DEFAULT_MODEL'`，线上因此对所有请求返回 1101。逻辑放在 `server/model-proxy/protocol.mjs`，入口 `server/model-proxy/volc-proxy.mjs` 只默认导出 fetch。
+
+配置：`server/model-proxy/wrangler.jsonc`。`compatibility_date` 为 `2026-11-18`。非密钥变量是 `VOLC_ARK_MODEL` 和 `VOLC_ARK_RESPONSES_URL`。密钥只有 `MODEL_PROXY_TOKEN` 和 `VOLC_ARK_API_KEY`。不需要数据库、KV 或其他绑定。
+
+用 Wrangler 部署时，入口仍是 `volc-proxy.mjs`，Wrangler 会把它和 `protocol.mjs` 打成只含默认导出的模块。若连接器只能上传一个文件，使用这次 `wrangler deploy --dry-run --outdir` 生成的 `server/model-proxy/build/worker.js`。
 
 还没有部署，也没有创建 Cloudflare 资源。账号尚未选定。部署时只需要这个 Worker，不需要数据库。
 
-1. 安装 Wrangler 并登录将要使用的 Cloudflare 账号。
-2. 在 `server/model-proxy` 执行 `npx wrangler deploy`。
-3. 只在服务端写入密钥，不要发回仓库或打进 APK：
-   - `npx wrangler secret put VOLC_ARK_API_KEY`
-   - `npx wrangler secret put MODEL_PROXY_TOKEN`
-4. 把部署得到的 HTTPS 地址发回来。不要发送火山密钥。测试闸门令牌另走安全渠道交给测试的人，由测试者在手机里填写。
+线上 `weiguang-model-proxy.velapaw.workers.dev` 仍是修复前的版本，GET 和 POST 都返回 `error code: 1101`。不要把这次部署当成可用。
+
+1. 安装 Wrangler 并登录 VelaPaw 的 Cloudflare 账号。
+2. 在 `server/model-proxy` 执行 `npx wrangler deploy`。入口是 `volc-proxy.mjs`，Wrangler 会打包 `protocol.mjs`。
+3. 若连接器只能提交一个模块，上传 `server/model-proxy/build/worker.js`，`main_module` 用这个文件，`compatibility_date` 用 `2026-11-18`。非密钥变量沿用 `wrangler.jsonc`。
+4. `MODEL_PROXY_TOKEN` 已经写过则不用重写。火山密钥由账号所有者自己写入 `VOLC_ARK_API_KEY`，不要发回仓库或打进 APK。
+5. 重新部署后，不带令牌的 GET `/` 和 POST `/v1/coach` 应是 401。带令牌但没有火山密钥时应是 200，正文 `{"status":"model_unconfigured"}`。确认后再把 `https://weiguang-model-proxy.velapaw.workers.dev/v1/coach` 用于 APK 的 `VITE_MODEL_PROXY_URL`。
 
 `MODEL_PROXY_TOKEN` 只是内部测试的共用闸门和每分钟 10 次的进程内计数。它不能区分用户，重启或换一台隔离实例就清空，不能当作正式产品的登录。正式使用要另做用户鉴权。速率限制也不是持久配额。
 
