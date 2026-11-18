@@ -10,3 +10,7 @@ android/app/src/main/assets/public/
 *.log
 home-mobile.png
 keyboard-check.png
+.env
+.env.*
+private-sdks/
+vendor/

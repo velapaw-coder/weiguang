@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+def localProps = new Properties()
+def localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+def uteSdkDir = localProps.getProperty("uteSdkDir")
+if (uteSdkDir == null || uteSdkDir.trim().isEmpty()) {
+    uteSdkDir = System.getenv("UTE_SDK_DIR")
+}
+def uteAar = (uteSdkDir == null || uteSdkDir.trim().isEmpty()) ? null : file("${uteSdkDir}/app/libs/uteAndroidSdk_v5.4.2.aar")
+def hasUteSdk = uteAar != null && uteAar.exists()
+
 android {
     namespace "com.weiguang.energy.demo"
     compileSdk rootProject.ext.compileSdkVersion
@@ -31,6 +43,10 @@ repositories {
 }
 
 dependencies {
+    implementation project(':band-core')
+    if (hasUteSdk) {
+        implementation files(uteAar)
+    }
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
@@ -43,6 +59,14 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+if (!hasUteSdk) {
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        doFirst {
+            throw new GradleException("UTE Android SDK aar is missing. Set uteSdkDir in android/local.properties or UTE_SDK_DIR to the private UteSdkDemohx directory. This build will not substitute a mock SDK.")
+        }
+    }
+}
 
 try {
     def servicesJSON = file('google-services.json')

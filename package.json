@@ -6,17 +6,23 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run && node --test server/model-proxy/test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.3",
     "@capacitor/core": "^6.2.3",
+    "@langchain/core": "^1.4.1",
+    "@langchain/langgraph": "^1.7.5",
+    "@langchain/langgraph-checkpoint": "^1.2.3",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.3",
-    "vite": "^6.1.0"
+    "jsdom": "^31.0.1",
+    "vite": "^6.1.0",
+    "vitest": "^5.1.0"
   }
 }
