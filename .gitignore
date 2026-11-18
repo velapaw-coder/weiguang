@@ -16,3 +16,7 @@ keyboard-check.png
 .wrangler/
 private-sdks/
 vendor/
+.weiguang-key
+.weiguang-muse/
+__pycache__/
+*.pyc

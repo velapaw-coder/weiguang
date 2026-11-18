@@ -146,7 +146,7 @@ export default function App() {
       timezone: zone,
     });
     if (saved.error) toast('任务没有写入手机数据库');
-    else toast(proposal.source === 'langgraph' ? '已保存模型建议，提醒仍需你另外确认' : '已保存本地规则建议');
+    else toast(proposal.source === 'muse' || proposal.source === 'langgraph' ? '已保存模型建议，提醒仍需你另外确认' : '已保存本地规则建议');
     refresh();
   }
 
@@ -212,7 +212,7 @@ export default function App() {
             {(coach?.notices || []).map((item) => <div className="chat-line ai" key={item}><div className="bubble">{item}</div></div>)}
             {coach?.modelText && <div className="chat-line ai"><div className="bubble">模型表述：{coach.modelText}</div></div>}
             {coach?.followup && <div className="chat-line ai"><div className="bubble">{coach.followup}</div></div>}
-            {(coach?.proposals || []).map((proposal) => <div className="detail-panel" key={proposal.title}><strong>{proposal.source === 'langgraph' ? '模型建议，需确认' : '本地规则建议，不是云端模型'}</strong><p>{proposal.title}</p><p>{proposal.detail}</p><button className="detail-choice" onClick={() => acceptProposal(proposal)}>保存为任务</button></div>)}
+            {(coach?.proposals || []).map((proposal) => <div className="detail-panel" key={proposal.title}><strong>{proposal.source === 'muse' || proposal.source === 'langgraph' ? '模型建议，需确认' : '本地规则建议，不是云端模型'}</strong><p>{proposal.title}</p><p>{proposal.detail}</p><button className="detail-choice" onClick={() => acceptProposal(proposal)}>保存为任务</button></div>)}
             {coach && !coach.proposals?.length && <div className="empty-card"><strong>没有新的任务建议</strong><p>可以在计划里自己添加。缺少记录时不会编造依据。</p></div>}
           </div>
           <form className="chat-composer" onSubmit={askCoach}>
@@ -249,11 +249,11 @@ export default function App() {
           </form>
           <div className="detail-panel">
             <strong>模型</strong>
-            <p>火山密钥只在代理上。这里的地址和令牌只保存在这部手机。令牌是内部测试用的共用闸门，不是登录账号，也不能区分使用者。正式使用要另做用户登录。代理还没部署时，教练只能用手写任务和本地规则。</p>
+            <p>正式构建没有代理地址时不会发出模型请求。内部测试的火山直连只读本机环境变量 WEIGUANG_VOLC_API_KEY，或仓库外的 WEIGUANG_VOLC_KEY_FILE。密钥不进页面和安装包。下面的地址只留在这部手机。</p>
             <label className="detail-choice"><input type="checkbox" checked={consent} onChange={async (event) => { const next = event.target.checked; setConsent(next); if (android) await WeiguangStore.setMeta({ key: 'ai_consent', value: next ? 'yes' : 'no' }); }} /> 允许把最小摘要发给代理</label>
-            <input value={proxyUrl} onChange={(event) => setProxyUrl(event.target.value)} placeholder="https://代理地址" />
+            <input value={proxyUrl} onChange={(event) => setProxyUrl(event.target.value)} placeholder="本机运行时或代理地址" />
             <input value={proxyToken} onChange={(event) => setProxyToken(event.target.value)} placeholder="代理令牌，不是火山密钥" />
-            <button className="detail-choice" onClick={async () => { await WeiguangStore.setMeta({ key: 'proxy_url', value: proxyUrl }); await WeiguangStore.setMeta({ key: 'proxy_token', value: proxyToken }); toast('已保存在本机'); }}>保存代理设置</button>
+            <button className="detail-choice" onClick={async () => { await WeiguangStore.setMeta({ key: 'proxy_url', value: proxyUrl }); await WeiguangStore.setMeta({ key: 'muse_runtime_url', value: proxyUrl }); await WeiguangStore.setMeta({ key: 'proxy_token', value: proxyToken }); toast('已保存在本机'); }}>保存代理设置</button>
           </div>
           <button className="reset-link" onClick={async () => { if (!android) { toast('没有本地数据库'); return; } await WeiguangStore.deleteAll({ confirmed: true }); setCoach(null); refresh(); }}>删除这部手机上的微光数据</button>
         </div>}
