@@ -60,6 +60,81 @@ const COACH_METRICS = ['steps', 'heart_rate', 'spo2', 'sleep', 'hrv', 'temperatu
 const TASK_SOURCES = { user: '自己添加', langgraph: '教练建议 · 已确认', local_rule: '记录对照 · 已确认' };
 const OPENING = '你好，我是你的 AI 精力教练。你可以告诉我今天的睡眠、精力或压力感受，我会结合记录帮你找一个可执行的小步骤。';
 const ENERGY_QUESTION = '结合已同步的记录，帮我看看今天的精力状态';
+
+function stored(key) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function store(key, value) {
+  try { window.localStorage.setItem(key, String(value)); } catch { /* private mode: the choice lasts for this session */ }
+}
+function storedIndex(key) {
+  const raw = stored(key);
+  const index = Number(raw);
+  return raw !== null && Number.isInteger(index) && index >= 0 && index < BAND_COLORS.length ? index : 2;
+}
+function formatWhen(value, now = Date.now()) {
+  const ms = Number(value);
+  if (!ms) return '';
+  const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+  const day = dayLabel({ phone_received_at: ms }, now);
+  return `${day} ${time}`;
+}
+function todayLabel() {
+  const now = new Date();
+  return `${now.getMonth() + 1} 月 ${now.getDate()} 日 · ${new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(now)}`;
+}
+function dayPart() {
+  const hour = new Date().getHours();
+  if (hour < 5) return ['GOOD NIGHT', '夜深了'];
+  if (hour < 12) return ['GOOD MORNING', '早安'];
+  if (hour < 18) return ['GOOD AFTERNOON', '午安'];
+  return ['GOOD EVENING', '晚上好'];
+}
+function parseJson(text, fallback) {
+  try {
+    const value = JSON.parse(text);
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function capability(snap, metric) {
+  const device = snap?.devices?.[0];
+  const item = device?.capabilities_json ? parseJson(device.capabilities_json, {})[metric] : null;
+  if (!item) return { known: null, supported: null };
+  return { known: item.known === true, supported: item.supported === true };
+}
+/** What one metric row should show: a formatted reading with its day, or the reason there is none. */
+function rowState(snap, metric) {
+  const row = snap?.latest?.[metric];
+  const flags = capability(snap, metric);
+  const sync = (snap?.sync || []).find((item) => item.metric === metric);
+  const presentation = metricPresentation({
+    row: row ? { ...row, metric } : null,
+    known: flags.known,
+    supported: flags.supported,
+    syncStatus: sync?.last_status || '',
+  });
+  const text = row ? formatMetric(metric, row) : null;
+  if (text) return { kind: 'value', text, pill: dayLabel(row) || '已同步', tone: dayLabel(row) === '今天' ? '' : 'muted' };
+  const kind = presentation.kind === 'value' ? 'invalid' : presentation.kind;
+  return { kind, text: '—', pill: METRIC_STATUS[kind] || '未同步', tone: kind === 'failed' || kind === 'invalid' ? 'warn' : 'muted' };
+}
+function signalText(rssi) {
+  const value = Number(rssi);
+  if (!Number.isFinite(value) || value === 0) return '';
+  if (value >= -65) return '信号强';
+  if (value >= -80) return '信号中';
+  return '信号弱';
+}
+function proposalDetail(proposal) {
+  if (proposal.source !== 'local_rule') return proposal.detail || '';
+  const basis = proposal.basedOn?.[0];
+  if (!basis) return '这只是记录对照，不是健康结论。';
+  const day = dayLabel({ device_sampled_at: basis.deviceSampledAt, phone_received_at: basis.phoneReceivedAt });
+  return `依据：${day || '最近一次'}同步的步数 ${Math.round(basis.value).toLocaleString('en-US')} 步。这只是记录对照，不是健康结论。`;
+}
+
 function IconBubble({ icon: Icon, tone = 'blue', size = 20 }) {
   return <span className={`icon-bubble ${tone}`}><Icon size={size} strokeWidth={2.1} /></span>;
 }
