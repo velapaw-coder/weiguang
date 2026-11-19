@@ -9,6 +9,7 @@ import { AppShell, isAndroidApp, UteBand, WeiguangStore } from './band/native.js
 import { assess } from './coach/quality.js';
 import { metricPresentation, METRIC_STATUS } from './coach/history.js';
 import { runDeviceCoach } from './coach/run.js';
+import { coachItems, restoreCoachMessages } from './coach/chat.js';
 import {
   axisLabels, axisTicks, dailySeries, dayLabel, errorText, formatMetric, formatMinutes, halfChange, mixHex,
   nextOccurrence, PLAN_DAYS, PLAN_PHASES, planProgress, reminderText, seriesDelta, sleepActivityContrast,
@@ -57,106 +58,8 @@ const CHART_UNITS = {
 };
 const COACH_METRICS = ['steps', 'heart_rate', 'spo2', 'sleep', 'hrv', 'temperature', 'mood_pressure', 'battery'];
 const TASK_SOURCES = { user: '自己添加', langgraph: '教练建议 · 已确认', local_rule: '记录对照 · 已确认' };
-const MODEL_NOTES = {
-  model_unconfigured: '云端模型还没有配置，这次是本机整理的内容。',
-  consent_required: '你还没有允许把记录摘要发给云端模型，这次是本机整理的内容。可以在「数据与隐私」里开启。',
-  offline: '现在没有网络，这次是本机整理的内容。',
-  skipped: '这次没有调用云端模型，是本机整理的内容。',
-};
 const OPENING = '你好，我是你的 AI 精力教练。你可以告诉我今天的睡眠、精力或压力感受，我会结合记录帮你找一个可执行的小步骤。';
 const ENERGY_QUESTION = '结合已同步的记录，帮我看看今天的精力状态';
-
-function stored(key) {
-  try { return window.localStorage.getItem(key); } catch { return null; }
-}
-function store(key, value) {
-  try { window.localStorage.setItem(key, String(value)); } catch { /* private mode: the choice lasts for this session */ }
-}
-function storedIndex(key) {
-  const raw = stored(key);
-  const index = Number(raw);
-  return raw !== null && Number.isInteger(index) && index >= 0 && index < BAND_COLORS.length ? index : 2;
-}
-function formatWhen(value, now = Date.now()) {
-  const ms = Number(value);
-  if (!ms) return '';
-  const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
-  const day = dayLabel({ phone_received_at: ms }, now);
-  return `${day} ${time}`;
-}
-function todayLabel() {
-  const now = new Date();
-  return `${now.getMonth() + 1} 月 ${now.getDate()} 日 · ${new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(now)}`;
-}
-function dayPart() {
-  const hour = new Date().getHours();
-  if (hour < 5) return ['GOOD NIGHT', '夜深了'];
-  if (hour < 12) return ['GOOD MORNING', '早安'];
-  if (hour < 18) return ['GOOD AFTERNOON', '午安'];
-  return ['GOOD EVENING', '晚上好'];
-}
-function parseJson(text, fallback) {
-  try {
-    const value = JSON.parse(text);
-    return value ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-function capability(snap, metric) {
-  const device = snap?.devices?.[0];
-  const item = device?.capabilities_json ? parseJson(device.capabilities_json, {})[metric] : null;
-  if (!item) return { known: null, supported: null };
-  return { known: item.known === true, supported: item.supported === true };
-}
-/** What one metric row should show: a formatted reading with its day, or the reason there is none. */
-function rowState(snap, metric) {
-  const row = snap?.latest?.[metric];
-  const flags = capability(snap, metric);
-  const sync = (snap?.sync || []).find((item) => item.metric === metric);
-  const presentation = metricPresentation({
-    row: row ? { ...row, metric } : null,
-    known: flags.known,
-    supported: flags.supported,
-    syncStatus: sync?.last_status || '',
-  });
-  const text = row ? formatMetric(metric, row) : null;
-  if (text) return { kind: 'value', text, pill: dayLabel(row) || '已同步', tone: dayLabel(row) === '今天' ? '' : 'muted' };
-  const kind = presentation.kind === 'value' ? 'invalid' : presentation.kind;
-  return { kind, text: '—', pill: METRIC_STATUS[kind] || '未同步', tone: kind === 'failed' || kind === 'invalid' ? 'warn' : 'muted' };
-}
-function signalText(rssi) {
-  const value = Number(rssi);
-  if (!Number.isFinite(value) || value === 0) return '';
-  if (value >= -65) return '信号强';
-  if (value >= -80) return '信号中';
-  return '信号弱';
-}
-function proposalDetail(proposal) {
-  if (proposal.source !== 'local_rule') return proposal.detail || '';
-  const basis = proposal.basedOn?.[0];
-  if (!basis) return '这只是记录对照，不是健康结论。';
-  const day = dayLabel({ device_sampled_at: basis.deviceSampledAt, phone_received_at: basis.phoneReceivedAt });
-  return `依据：${day || '最近一次'}同步的步数 ${Math.round(basis.value).toLocaleString('en-US')} 步。这只是记录对照，不是健康结论。`;
-}
-/** Chat items for one finished coach run: the reply text, then any proposals awaiting the user's confirmation. */
-function coachItems(values) {
-  const items = [];
-  const status = values?.modelStatus;
-  if (status === 'ok' && values.modelText) {
-    items.push({ who: 'ai', text: values.modelText });
-  } else {
-    const lines = [MODEL_NOTES[status] || '云端模型这次没有返回，下面是本机整理的内容。'];
-    for (const notice of values?.notices || []) {
-      if (!/SDK/.test(notice)) lines.push(notice);
-    }
-    if (values?.followup) lines.push(values.followup);
-    items.push({ who: 'ai', text: lines.join('\n') });
-  }
-  for (const proposal of values?.proposals || []) items.push({ who: 'proposal', proposal, saved: false });
-  return items;
-}
-
 function IconBubble({ icon: Icon, tone = 'blue', size = 20 }) {
   return <span className={`icon-bubble ${tone}`}><Icon size={size} strokeWidth={2.1} /></span>;
 }
@@ -251,6 +154,9 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [consentPrompt, setConsentPrompt] = useState(false);
+  const [pendingQuestion, setPendingQuestion] = useState('');
+  const [restoredChat, setRestoredChat] = useState(false);
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxyToken, setProxyToken] = useState('');
   const [debugModel, setDebugModel] = useState({ debug: false, configured: false });
@@ -263,6 +169,8 @@ export default function App() {
   const scanList = useRef(null);
   const scanWatch = useRef(false);
   const noticeTimer = useRef(0);
+  const abortRef = useRef(null);
+  const requestId = useRef(0);
   const refreshTimer = useRef(0);
   const loadedMeta = useRef(false);
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -332,6 +240,11 @@ export default function App() {
     else AppShell.setBars({ status: '#ffffff', navigation: onboarding ? '#ffffff' : '#fbfcff', darkIcons: true });
   }, [android, screen, theme, onboarding]);
 
+  useEffect(() => {
+    if (!android || restoredChat || !snap) return;
+    if ((snap.coachResults || []).length) setMessages(restoreCoachMessages(snap.coachResults));
+    setRestoredChat(true);
+  }, [android, snap, restoredChat]);
   useEffect(() => { if (screen === 'coach') chatEnd.current?.scrollIntoView({ block: 'end' }); }, [messages, screen, busy]);
   useEffect(() => {
     const update = () => document.documentElement.style.setProperty('--app-height', `${window.visualViewport?.height || window.innerHeight}px`);
@@ -463,38 +376,96 @@ export default function App() {
     toast(saved?.error ? errorText(saved.error) : '提醒已关闭');
     refresh();
   }
-  async function send(text = draft) {
-    const question = text.trim();
+  async function send(text = draft, options = {}) {
+    const question = String(text || '').trim();
     if (!question || busy) return;
-    setMessages((items) => [...items, { who: 'user', text: question }]);
-    setDraft('');
+    const skipConsent = options.skipConsent === true;
+    const modelReady = debugModel.configured || Boolean(proxyUrl && proxyToken);
+    if (android && modelReady && !consent && !skipConsent) {
+      setPendingQuestion(question);
+      setConsentPrompt(true);
+      setMessages((items) => [...items, { who: 'user', text: question }, {
+        who: 'ai',
+        text: '要把不含设备地址的记录摘要发给云端模型吗？允许后我会结合已同步的记录回答；也可以先只在本机整理。',
+        consentAsk: true,
+      }]);
+      setDraft('');
+      return;
+    }
+    if (!options.retry) {
+      setMessages((items) => [...items, { who: 'user', text: question }]);
+      setDraft('');
+    }
     if (!android) {
       setMessages((items) => [...items, { who: 'ai', text: '浏览器预览里没有手环记录，教练需要在安卓客户端里使用。这里不会编造数值。' }]);
       return;
     }
+    const id = ++requestId.current;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    abortRef.current = controller;
     setBusy(true);
+    setConsentPrompt(false);
     try {
       const observations = [];
       for (const metric of COACH_METRICS) {
         const result = await WeiguangStore.listObservations({ metric, limit: 12 });
         observations.push(...(result.rows || []));
       }
-      const outcome = await runDeviceCoach({ question, snapshot: { ...snap, connected }, observations, consent, proxyUrl, proxyToken, online: navigator.onLine });
-      setMessages((items) => [...items, ...coachItems(outcome.values)]);
+      const outcome = await runDeviceCoach({
+        question,
+        snapshot: { ...snap, connected, graphCheckpoint: snap?.graphCheckpoint || '' },
+        observations,
+        consent: options.forceLocal ? false : consent,
+        proxyUrl,
+        proxyToken,
+        online: navigator.onLine,
+        signal: controller?.signal,
+      });
+      if (id !== requestId.current) return;
+      const values = { ...outcome.values, question };
+      setMessages((items) => [...items, ...coachItems(values)]);
       await refresh();
     } catch {
-      setMessages((items) => [...items, { who: 'ai', text: '这次没有完成，记录仍留在手机上。可以稍后再试。' }]);
+      if (id !== requestId.current) return;
+      setMessages((items) => [...items, { who: 'ai', text: '这次没有完成，记录仍留在手机上。可以稍后再试。', retryable: true, lastQuestion: question }]);
     } finally {
-      setBusy(false);
+      if (id === requestId.current) {
+        setBusy(false);
+        abortRef.current = null;
+      }
     }
+  }
+  function cancelCoach() {
+    requestId.current += 1;
+    try { abortRef.current?.abort(); } catch { /* ignore */ }
+    abortRef.current = null;
+    setBusy(false);
+    setMessages((items) => [...items, { who: 'ai', text: '已取消这次请求。', retryable: true, lastQuestion: pendingQuestion || '' }]);
+  }
+  async function allowConsentAndSend() {
+    const question = pendingQuestion;
+    setConsentPrompt(false);
+    setPendingQuestion('');
+    if (!(await setMeta('ai_consent', 'yes'))) return;
+    if (question) await send(question, { skipConsent: true, retry: true });
+  }
+  async function localOnlyAndSend() {
+    const question = pendingQuestion;
+    setConsentPrompt(false);
+    setPendingQuestion('');
+    if (question) await send(question, { skipConsent: true, retry: true, forceLocal: true });
   }
   async function saveProposal(index) {
     const proposal = messages[index].proposal;
     const saved = await WeiguangStore.createTask({ title: proposal.title, detail: proposalDetail(proposal), source: proposal.source, rationaleJson: JSON.stringify(proposal.basedOn || []), timezone: zone });
     if (saved?.error) { toast(errorText(saved.error)); return; }
-    setMessages((items) => items.map((item, position) => (position === index ? { ...item, saved: true } : item)));
+    setMessages((items) => items.map((item, position) => (position === index ? { ...item, saved: true, dismissed: false } : item)));
     toast('已保存到计划。需要提醒的话，可以在计划里另外开启');
     refresh();
+  }
+  function dismissProposal(index) {
+    setMessages((items) => items.map((item, position) => (position === index ? { ...item, dismissed: true } : item)));
+    toast('已忽略这条建议');
   }
   async function deleteEverything() {
     if (!confirmDelete) { setConfirmDelete(true); return; }
@@ -502,6 +473,7 @@ export default function App() {
     const removed = await WeiguangStore.deleteAll({ confirmed: true });
     if (removed?.error) { toast(errorText(removed.error)); return; }
     setMessages([{ who: 'ai', text: OPENING }]);
+    setRestoredChat(true);
     setAnswers({});
     toast('这部手机上的微光数据已删除');
     refresh();
@@ -609,13 +581,13 @@ export default function App() {
           <div className="chat-history">
             <div className="context-card"><Sparkles size={16} /><span>{goals.length ? `你的目标：${goals.slice(0, 2).join('，')}` : plan ? `当前重点：${plan.phase.focus[0]}` : '还没有设定目标，可以在「我的」里添加'}</span></div>
             {messages.map((item, index) => (item.who === 'proposal'
-              ? <div className="proposal-card" key={index}><small>{item.proposal.source === 'langgraph' ? '教练建议 · 需要你确认' : '记录对照 · 需要你确认'}</small><strong>{item.proposal.title}</strong><p>{proposalDetail(item.proposal)}</p><button disabled={item.saved} onClick={() => saveProposal(index)}>{item.saved ? '已保存到计划' : '保存为任务'}</button></div>
-              : <div className={`chat-line ${item.who}`} key={index}>{item.who === 'ai' && <Sprite size="tiny" />}<div className="bubble">{item.text}</div></div>))}
-            {busy && <div className="chat-line ai"><Sprite size="tiny" /><div className="bubble typing">微光正在整理记录…</div></div>}
+              ? (item.dismissed ? null : <div className="proposal-card" key={index}><small>{item.proposal.source === 'langgraph' ? '教练建议 · 需要你确认' : '记录对照 · 需要你确认'}</small><strong>{item.proposal.title}</strong><p>{proposalDetail(item.proposal)}</p><div className="proposal-actions"><button disabled={item.saved} onClick={() => saveProposal(index)}>{item.saved ? '已保存到计划' : '保存为任务'}</button>{!item.saved && <button className="proposal-dismiss" onClick={() => dismissProposal(index)}>忽略</button>}</div></div>)
+              : <div className={`chat-line ${item.who}`} key={index}>{item.who === 'ai' && <Sprite size="tiny" />}<div className="bubble">{item.text}{item.consentAsk && <div className="consent-actions"><button type="button" onClick={allowConsentAndSend}>允许并继续</button><button type="button" className="secondary" onClick={localOnlyAndSend}>先本机整理</button></div>}{item.retryable && item.lastQuestion && !busy && <div className="consent-actions"><button type="button" onClick={() => send(item.lastQuestion, { retry: true, skipConsent: true })}>再试一次</button></div>}</div></div>))}
+            {busy && <div className="chat-line ai"><Sprite size="tiny" /><div className="bubble typing">微光正在整理记录…<button type="button" className="cancel-inline" onClick={cancelCoach}>取消</button></div></div>}
             <div ref={chatEnd} />
           </div>
-          <div className="suggestions">{['今天为什么有点累？', '帮我调整睡前计划', '记录我的观察'].map((text) => <button key={text} disabled={busy} onClick={() => send(text)}>{text}</button>)}</div>
-          <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><button type="button" aria-label="更多操作" onClick={() => toast('可输入文字记录你的观察')}><Plus size={20} /></button><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="聊聊今天的睡眠与精力…" /><button type="submit" className="send-button" aria-label="发送" disabled={busy}><Send size={18} /></button></form>
+          <div className="suggestions">{['今天为什么有点累？', '帮我调整睡前计划', '记录我的观察'].map((text) => <button key={text} disabled={busy || consentPrompt} onClick={() => send(text)}>{text}</button>)}</div>
+          <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><button type="button" aria-label="更多操作" onClick={() => toast('可输入文字记录你的观察')}><Plus size={20} /></button><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="聊聊今天的睡眠与精力…" disabled={busy} /><button type="submit" className="send-button" aria-label="发送" disabled={busy || !draft.trim()}><Send size={18} /></button></form>
         </div>}
 
         {screen === 'plan' && <div className="app-screen">

@@ -18,9 +18,13 @@ import android.content.SharedPreferences;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "WeiguangStore")
 public class WeiguangStorePlugin extends Plugin {
+    /** Keep Volcano HTTPS off the Capacitor bridge thread so chat UI stays responsive. */
+    private final ExecutorService modelIo = Executors.newSingleThreadExecutor();
     @PluginMethod
     public void snapshot(PluginCall call) {
         call.resolve(snapshotObject());
@@ -191,27 +195,31 @@ public class WeiguangStorePlugin extends Plugin {
     public void postDebugModel(PluginCall call) {
         DebugModelKeyInstall.ensure(getContext());
         String body = call.getString("body", "");
-        try {
-            DebugModelPoster.Outcome outcome = DebugModelPoster.send(
-                    debugBuild(),
-                    debugPrefs().getString(DEBUG_KEY, ""),
-                    DebugModelPoster.RESPONSES_URL,
-                    body,
-                    this::postHttps);
-            JSObject result = new JSObject();
-            result.put("sent", outcome.sent);
-            result.put("reason", outcome.reason);
-            result.put("httpStatus", outcome.httpStatus);
-            result.put("bodyText", outcome.bodyText);
-            call.resolve(result);
-        } catch (Exception exception) {
-            JSObject result = new JSObject();
-            result.put("sent", false);
-            result.put("reason", "transport");
-            result.put("httpStatus", 0);
-            result.put("bodyText", "");
-            call.resolve(result);
-        }
+        boolean debug = debugBuild();
+        String key = debugPrefs().getString(DEBUG_KEY, "");
+        modelIo.execute(() -> {
+            try {
+                DebugModelPoster.Outcome outcome = DebugModelPoster.send(
+                        debug,
+                        key,
+                        DebugModelPoster.RESPONSES_URL,
+                        body,
+                        this::postHttps);
+                JSObject result = new JSObject();
+                result.put("sent", outcome.sent);
+                result.put("reason", outcome.reason);
+                result.put("httpStatus", outcome.httpStatus);
+                result.put("bodyText", outcome.bodyText);
+                call.resolve(result);
+            } catch (Exception exception) {
+                JSObject result = new JSObject();
+                result.put("sent", false);
+                result.put("reason", "transport");
+                result.put("httpStatus", 0);
+                result.put("bodyText", "");
+                call.resolve(result);
+            }
+        });
     }
 
     @PluginMethod
@@ -277,10 +285,16 @@ public class WeiguangStorePlugin extends Plugin {
         result.put("meta", meta(repo.allMeta()));
         result.put("latest", latest(repo));
         JSArray coach = new JSArray();
-        for (Map<String, Object> row : repo.listCoachResults(8)) {
+        for (Map<String, Object> row : repo.listCoachResults(12)) {
             coach.put(map(row));
         }
         result.put("coachResults", coach);
+        Map<String, Object> graph = repo.getGraphSnapshot("coach");
+        if (graph != null && graph.get("checkpoint_json") != null) {
+            result.put("graphCheckpoint", String.valueOf(graph.get("checkpoint_json")));
+        } else {
+            result.put("graphCheckpoint", "");
+        }
         return result;
     }
 

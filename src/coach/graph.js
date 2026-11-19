@@ -20,6 +20,7 @@ const CoachState = Annotation.Root({
   minimalSummary: Annotation({ reducer: (_left, right) => right ?? '', default: () => '' }),
   modelStatus: Annotation({ reducer: (_left, right) => right ?? 'not_run', default: () => 'not_run' }),
   modelText: Annotation({ reducer: (_left, right) => right ?? '', default: () => '' }),
+  modelReason: Annotation({ reducer: (_left, right) => right ?? '', default: () => '' }),
   proposals: Annotation({ reducer: (_left, right) => right ?? [], default: () => [] }),
   followup: Annotation({ reducer: (_left, right) => right ?? '', default: () => '' }),
   notices: Annotation({ reducer: (_left, right) => right ?? [], default: () => [] }),
@@ -94,14 +95,22 @@ export function buildCoachGraph(deps) {
         return {
           modelStatus: status,
           modelText: status === 'ok' ? String(response.text || '') : '',
+          modelReason: status === 'ok' ? '' : String(response?.reason || ''),
           proposals: modelProposals.length ? modelProposals : localProposal(state.observations),
         };
-      } catch {
-        return { modelStatus: 'model_failed', modelText: '', proposals: localProposal(state.observations) };
+      } catch (error) {
+        const cancelled = error?.name === 'AbortError' || String(error?.message || '').includes('abort');
+        return {
+          modelStatus: 'model_failed',
+          modelText: '',
+          modelReason: cancelled ? 'cancelled' : 'transport',
+          proposals: localProposal(state.observations),
+        };
       }
     })
     .addNode('localDraft', (state) => ({
       modelStatus: state.proxyConfigured ? (state.consent ? (state.online ? 'skipped' : 'offline') : 'consent_required') : 'model_unconfigured',
+      modelReason: '',
       proposals: state.quality?.hasAnySample ? localProposal(state.observations) : [],
     }))
     .addNode('review', (state) => {

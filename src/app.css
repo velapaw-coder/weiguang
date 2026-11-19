@@ -95,3 +95,16 @@
 
 /* Older Android WebViews left-align flex-column button content; the prototype shows it centred. */
 .price-row button { align-items: center; text-align: center; }
+
+.proposal-actions, .consent-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.proposal-actions button, .consent-actions button {
+  flex: 1; min-width: 110px; border: 0; border-radius: 12px; padding: 10px 12px;
+  background: color-mix(in srgb, var(--theme) 88%, #1c2954); color: #fff; font-weight: 600;
+}
+.proposal-actions .proposal-dismiss, .consent-actions .secondary {
+  background: #eef1f7; color: #31415f; font-weight: 500;
+}
+.cancel-inline {
+  display: inline-block; margin-left: 10px; border: 0; background: transparent;
+  color: #5b6b8c; text-decoration: underline; font: inherit; padding: 0;
+}

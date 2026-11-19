@@ -25,7 +25,8 @@ async function androidStatus(androidBridge) {
   }
 }
 
-async function postAndroidDebug({ summary, turns, androidBridge, model, url }) {
+async function postAndroidDebug({ summary, turns, androidBridge, model, url, signal }) {
+  if (signal?.aborted) return { status: 'model_failed', reason: 'cancelled' };
   const body = JSON.stringify(buildResponsesBody({ summary, turns, model }));
   const bridge = androidBridge?.postDebugModel
     ? androidBridge
@@ -36,6 +37,7 @@ async function postAndroidDebug({ summary, turns, androidBridge, model, url }) {
   } catch {
     return { status: 'model_failed', reason: 'transport' };
   }
+  if (signal?.aborted) return { status: 'model_failed', reason: 'cancelled' };
   if (!posted?.sent) return { status: 'model_unconfigured', reason: posted?.reason || 'key_not_configured' };
   let json = null;
   try {
@@ -56,6 +58,7 @@ export async function runDeviceCoach({
   online,
   env = runtimeEnv(),
   androidBridge,
+  signal,
 }) {
   const proxyConfigured = Boolean(proxyUrl && proxyToken);
   const direct = readDirectConfig(env, await directFileText(env));
@@ -78,11 +81,13 @@ export async function runDeviceCoach({
       turns: localTurns(snapshot?.coachResults),
     }),
     callModel: ({ summary, turns }) => {
+      if (signal?.aborted) return Promise.resolve({ status: 'model_failed', reason: 'cancelled' });
       if (proxyConfigured) return postCoach({ proxyUrl, proxyToken, summary, turns });
-      if (phoneDirect) return postAndroidDebug({ summary, turns, androidBridge, model: direct.model, url: direct.url });
+      if (phoneDirect) return postAndroidDebug({ summary, turns, androidBridge, model: direct.model, url: direct.url, signal });
       return postVolcDirect({ summary, turns, apiKey: direct.apiKey, model: direct.model, url: direct.url });
     },
     persist: async ({ values, checkpointJson, summaryJson }) => {
+      if (signal?.aborted) return;
       const { WeiguangStore, isAndroidApp } = await import('../band/native.js');
       if (!isAndroidApp()) return;
       await WeiguangStore.saveGraphSnapshot({
@@ -95,10 +100,12 @@ export async function runDeviceCoach({
         status: values.modelStatus,
         summaryJson: summaryJson || '{}',
         resultJson: JSON.stringify({
+          question: values.question || question || '',
           followup: values.followup,
           proposals: values.proposals,
           notices: values.notices,
           modelText: values.modelText,
+          modelReason: values.modelReason || '',
           stripped: values.stripped,
         }),
       });

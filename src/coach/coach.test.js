@@ -210,3 +210,30 @@ describe('source guard', () => {
     expect(plugin.slice(plugin.indexOf('onStepSyncSuccess'), plugin.indexOf('onStepSyncSuccess') + 180)).toContain('onBandThread');
   });
 });
+
+describe("summary freshness", () => {
+  it("marks band-clock days and keeps task titles under the size limit", async () => {
+    const { minimalSummary } = await import("./summary.js");
+    const now = new Date(2026, 10, 19, 12).getTime();
+    const summary = minimalSummary({
+      question: "今天怎样",
+      goals: ["早睡"],
+      tasks: [
+        { status: "active", title: "午后散步" },
+        { status: "done", title: "23:30 放松", updated_at: now - 3600_000 },
+      ],
+      observations: [
+        { metric: "steps", device_sampled_at: "20261119", phone_received_at: now, value_json: "{\"step\":2134}" },
+        { metric: "steps", device_sampled_at: "20261117", phone_received_at: now - 1, value_json: "{\"step\":9000}" },
+        { metric: "sleep", device_sampled_at: "20261118", phone_received_at: now, value_json: "{\"totalMinutes\":432}" },
+      ],
+      quality: { pendingSync: false, metrics: { steps: { resolution: "day_or_session" } } },
+      now,
+    });
+    expect(summary.body.metrics[0].points[0].freshness).toEqual({ label: "today", ageDays: 0 });
+    expect(summary.body.metrics.find((m) => m.metric === "sleep").points[0].freshness.label).toBe("yesterday");
+    expect(summary.body.tasks.activeTitles).toContain("午后散步");
+    expect(summary.json).toContain("\"label\":\"today\"");
+    expect(summary.json).not.toContain("AA:BB");
+  });
+});
