@@ -115,6 +115,41 @@ public class CoreBehaviorTest {
     }
 
     @Test
+    public void latestReadingFollowsTheBandClockNotTheReceiveOrder() throws Exception {
+        Path file = Files.createTempFile("weiguang-latest", ".db");
+        Files.delete(file);
+        try (JdbcSession session = new JdbcSession(file.toAbsolutePath().toString())) {
+            HealthRepository repo = new HealthRepository(session);
+            repo.migrate(1_000);
+            String address = "AA:BB:CC:DD:EE:01";
+            repo.upsertObservation(ObservationKey.stepsDay(address, "20261119"), address, "steps", "20261119", 2_000, "s", "{\"step\":900}", "recorded", 2_000);
+            repo.upsertObservation(ObservationKey.stepsDay(address, "20261117"), address, "steps", "20261117", 3_000, "s", "{\"step\":7000}", "recorded", 3_000);
+            assertEquals("20261119", repo.listObservations("", "steps", 1).get(0).get("device_sampled_at"));
+            assertEquals("20261119", repo.latestObservation("steps").get("device_sampled_at"));
+            repo.upsertObservation(ObservationKey.battery(address, 80, 4_000), address, "battery", null, 4_000, "s", "{\"percent\":80}", "device_time_missing", 4_000);
+            repo.upsertObservation(ObservationKey.battery(address, 79, 5_000), address, "battery", null, 5_000, "s", "{\"percent\":79}", "device_time_missing", 5_000);
+            assertEquals("{\"percent\":79}", repo.latestObservation("battery").get("value_json"));
+            assertEquals(null, repo.latestObservation("sleep"));
+        }
+    }
+
+    @Test
+    public void removingAGoalArchivesEveryDuplicateOfItsText() throws Exception {
+        Path file = Files.createTempFile("weiguang-goal", ".db");
+        Files.delete(file);
+        try (JdbcSession session = new JdbcSession(file.toAbsolutePath().toString())) {
+            HealthRepository repo = new HealthRepository(session);
+            repo.migrate(1_000);
+            repo.saveGoal("random-1", "就寝时间 23:30 前", 1_000);
+            repo.saveGoal("random-2", "就寝时间 23:30 前", 2_000);
+            repo.saveGoal("random-3", "减少下午疲惫感", 3_000);
+            repo.archiveGoalsByText("就寝时间 23:30 前");
+            assertEquals(1, repo.listGoals().size());
+            assertEquals("减少下午疲惫感", repo.listGoals().get(0).get("text"));
+        }
+    }
+
+    @Test
     public void migrationFromVersionOneKeepsRows() throws Exception {
         Path file = Files.createTempFile("weiguang-mig", ".db");
         Files.delete(file);

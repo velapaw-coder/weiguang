@@ -31,6 +31,14 @@ public class ConnectAndVitalTest {
     }
 
     @Test
+    public void realtimeStepTotalTakesItsDayFromTheHourBuckets() {
+        assertEquals("20261118", VitalSample.stepDay("20261118", java.util.Arrays.asList("20261119")));
+        assertEquals("20261119", VitalSample.stepDay("", java.util.Arrays.asList("20261118", null, "20261119")));
+        assertEquals("20261119", VitalSample.stepDay(null, java.util.Arrays.asList("20261119")));
+        assertEquals("", VitalSample.stepDay("", null));
+    }
+
+    @Test
     public void diagnosticKeepsObfuscatedSdkFrames() {
         NoClassDefFoundError error = new NoClassDefFoundError("Failed resolution of: Lcom/google/gson/Gson;");
         error.setStackTrace(new StackTraceElement[] {

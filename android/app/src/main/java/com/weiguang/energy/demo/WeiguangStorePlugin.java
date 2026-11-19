@@ -26,13 +26,16 @@ public class WeiguangStorePlugin extends Plugin {
         call.resolve(snapshotObject());
     }
 
+    /** Ten-minute samples for thirty days is about 4300 rows per metric. */
+    private static final int MAX_ROWS = 5000;
+
     @PluginMethod
     public void listObservations(PluginCall call) {
         String address = call.getString("address", "");
         String metric = call.getString("metric", "steps");
         int limit = call.getInt("limit", 60);
         JSObject result = new JSObject();
-        result.put("rows", rows(repo().listObservations(address, metric, Math.min(Math.max(limit, 1), 500))));
+        result.put("rows", rows(repo().listObservations(address, metric, Math.min(Math.max(limit, 1), MAX_ROWS))));
         call.resolve(result);
     }
 
@@ -45,6 +48,17 @@ public class WeiguangStorePlugin extends Plugin {
         }
         String id = call.getString("id", UUID.randomUUID().toString());
         repo().saveGoal(id, text, System.currentTimeMillis());
+        call.resolve(snapshotObject());
+    }
+
+    @PluginMethod
+    public void removeGoal(PluginCall call) {
+        String text = call.getString("text", "").trim();
+        if (text.isEmpty()) {
+            call.resolve(error("empty_goal"));
+            return;
+        }
+        repo().archiveGoalsByText(text);
         call.resolve(snapshotObject());
     }
 
@@ -274,9 +288,9 @@ public class WeiguangStorePlugin extends Plugin {
         JSObject latest = new JSObject();
         String[] metrics = {"battery", "steps", "sleep", "heart_rate", "spo2", "hrv", "temperature", "mood_pressure"};
         for (String metric : metrics) {
-            java.util.List<Map<String, Object>> rows = repo.listObservations("", metric, 1);
-            if (!rows.isEmpty()) {
-                latest.put(metric, map(rows.get(0)));
+            Map<String, Object> row = repo.latestObservation(metric);
+            if (row != null) {
+                latest.put(metric, map(row));
             }
         }
         return latest;

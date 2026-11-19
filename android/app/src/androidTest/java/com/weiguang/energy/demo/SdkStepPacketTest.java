@@ -7,11 +7,17 @@ import static org.junit.Assert.assertTrue;
 import android.app.Application;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.weiguang.energy.core.VitalSample;
 import com.yc.utesdk.bean.StepOneDayAllInfo;
+import com.yc.utesdk.bean.StepOneHourInfo;
 import com.yc.utesdk.ble.open.UteBleClient;
 import com.yc.utesdk.listener.StepChangeListener;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -56,6 +62,14 @@ public class SdkStepPacketTest {
         StepOneDayAllInfo info = seen.get();
         assertNotNull("the SDK did not report the realtime step packet", info);
         assertTrue(info.getStep() >= 137);
+        // The SDK leaves the realtime day bean's date empty; the pages need the day, so it must be recoverable.
+        List<String> hourDays = new ArrayList<>();
+        for (StepOneHourInfo hour : info.getStepOneHourArrayInfo()) {
+            hourDays.add(hour.getCalendar());
+        }
+        assertEquals(
+                new SimpleDateFormat("yyyyMMdd", Locale.US).format(new Date()),
+                VitalSample.stepDay(info.getCalendar(), hourDays));
     }
 
     @Test

@@ -59,15 +59,26 @@ public final class HealthRepository {
         return true;
     }
 
+    /**
+     * Newest first by the band's own clock. A history sync can deliver old days last, so receive
+     * order alone would show a past day as the current reading. Rows without a device time rank last.
+     */
+    private static final String BAND_CLOCK_ORDER =
+            " ORDER BY CASE WHEN device_sampled_at IS NULL OR device_sampled_at = '' THEN 0 ELSE 1 END DESC,"
+                    + " device_sampled_at DESC, phone_received_at DESC LIMIT ?";
+
     public List<Map<String, Object>> listObservations(String address, String metric, int limit) {
         if (address == null || address.isEmpty()) {
-            return db.query(
-                    "SELECT * FROM observations WHERE metric = ? ORDER BY phone_received_at DESC LIMIT ?",
-                    metric, limit);
+            return db.query("SELECT * FROM observations WHERE metric = ?" + BAND_CLOCK_ORDER, metric, limit);
         }
         return db.query(
-                "SELECT * FROM observations WHERE device_address = ? AND metric = ? ORDER BY phone_received_at DESC LIMIT ?",
+                "SELECT * FROM observations WHERE device_address = ? AND metric = ?" + BAND_CLOCK_ORDER,
                 address, metric, limit);
+    }
+
+    public Map<String, Object> latestObservation(String metric) {
+        List<Map<String, Object>> rows = listObservations(null, metric, 1);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     public void touchSync(String address, String metric, String status, String error, String cursor, Long successAt, long attemptAt) {
@@ -114,6 +125,11 @@ public final class HealthRepository {
         db.exec(
                 "INSERT OR REPLACE INTO goals(id, text, created_at, archived) VALUES(?,?,?,0)",
                 id, text, now);
+    }
+
+    /** Archives every active goal carrying this text; older builds saved one row per confirmation. */
+    public void archiveGoalsByText(String text) {
+        db.exec("UPDATE goals SET archived = 1 WHERE text = ? AND archived = 0", text);
     }
 
     public List<Map<String, Object>> listGoals() {

@@ -918,9 +918,16 @@ public class UteBandPlugin extends Plugin {
     }
 
     private void storeSteps(StepOneDayAllInfo info) {
-        if (info == null || info.getCalendar() == null) {
+        if (info == null) {
             return;
         }
+        java.util.List<String> hourDays = new java.util.ArrayList<>();
+        if (info.getStepOneHourArrayInfo() != null) {
+            for (StepOneHourInfo hour : info.getStepOneHourArrayInfo()) {
+                hourDays.add(hour.getCalendar());
+            }
+        }
+        String day = VitalSample.stepDay(info.getCalendar(), hourDays);
         String address = currentAddress();
         long received = System.currentTimeMillis();
         JSONObject value = new JSONObject();
@@ -934,11 +941,11 @@ public class UteBandPlugin extends Plugin {
             return;
         }
         repo().upsertObservation(
-                ObservationKey.stepsDay(address, info.getCalendar()),
-                address, "steps", info.getCalendar(), received, syncId, value.toString(), "recorded", received);
+                ObservationKey.stepsDay(address, day),
+                address, "steps", day, received, syncId, value.toString(), day.isEmpty() ? "device_time_missing" : "recorded", received);
         if (info.getStepOneHourArrayInfo() != null) {
             for (StepOneHourInfo hour : info.getStepOneHourArrayInfo()) {
-                String calendar = hour.getCalendar() == null ? info.getCalendar() : hour.getCalendar();
+                String calendar = hour.getCalendar() == null ? day : hour.getCalendar();
                 JSONObject hourValue = new JSONObject();
                 try {
                     hourValue.put("step", hour.getStep());
