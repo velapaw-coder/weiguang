@@ -28,6 +28,12 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    packagingOptions {
+        resources {
+            // lz4 bundles desktop JNI binaries; Android uses its pure Java implementation.
+            excludes += ['darwin/**', 'linux/**', 'win32/**']
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
@@ -46,6 +52,9 @@ dependencies {
     implementation project(':band-core')
     if (hasUteSdk) {
         implementation files(uteAar)
+        // The aar ships without its dependencies and its data parsers call these directly.
+        implementation 'com.google.code.gson:gson:2.8.9'
+        implementation 'net.jpountz.lz4:lz4:1.3.0'
     }
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
