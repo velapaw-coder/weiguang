@@ -7,6 +7,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.weiguang.energy.core.DebugModelKeyBootstrap;
+import com.weiguang.energy.core.DebugModelMock;
 import com.weiguang.energy.core.DebugModelPoster;
 import com.weiguang.energy.core.HttpsModelTransport;
 import com.weiguang.energy.core.HealthRepository;
@@ -335,7 +336,9 @@ public class WeiguangStorePlugin extends Plugin {
     }
 
     private DebugModelPoster.Response postHttps(String url, String authorization, String body) throws Exception {
-        return HttpsModelTransport.INSTANCE.post(url, authorization, body);
+        String mock = debugPrefs().getString(DebugModelMock.PREFS_KEY, "");
+        String target = DebugModelMock.resolveTransportUrl(debugBuild(), url, mock);
+        return HttpsModelTransport.INSTANCE.post(target, authorization, body);
     }
 
     private static String zone(PluginCall call) {
