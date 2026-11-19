@@ -1,3 +1,5 @@
+import { newestFirst } from './history.js';
+
 /** User-stated expectation. Not a device reading and not a per-metric rule. */
 export const USER_SAMPLE_EXPECTATION_MIN = 10;
 const LAG_MS = 2 * 60 * 60 * 1000;
@@ -11,7 +13,7 @@ export function assess({ observations = [], sync = [], connected = false, now = 
   }
   const metricReports = {};
   for (const [metric, rows] of Object.entries(metrics)) {
-    const latest = rows.slice().sort((a, b) => received(b) - received(a))[0];
+    const latest = rows.slice().sort(newestFirst)[0];
     metricReports[metric] = {
       count: rows.length,
       deviceSampledAt: text(latest.device_sampled_at ?? latest.deviceSampledAt),

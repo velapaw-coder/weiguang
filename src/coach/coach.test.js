@@ -59,6 +59,19 @@ describe('local coach', () => {
     expect(result.values.proposals[0].schedulesNotification).toBe(false);
   });
 
+  it('cites the newest day by the band clock when history arrives out of order', async () => {
+    const rows = [
+      { metric: 'steps', device_sampled_at: '20261021', phone_received_at: 3_000, value_json: '{"step":6842}' },
+      { metric: 'steps', device_sampled_at: '20261119', phone_received_at: 2_000, value_json: '{"step":2134}' },
+    ];
+    const result = await runCoach({
+      observations: rows, goals: [], tasks: [], sync: [], consent: false, proxyConfigured: false, online: false,
+    }, { callModel: async () => ({ status: 'ok' }) });
+    expect(result.values.proposals[0].basedOn[0]).toMatchObject({ value: 2134, deviceSampledAt: '20261119' });
+    expect(assess({ observations: rows }).metrics.steps.deviceSampledAt).toBe('20261119');
+    expect(JSON.parse(minimalSummary({ observations: rows }).json).metrics[0].points[0].value).toBe(2134);
+  });
+
   it('drops model output that tries to notify or command the band', async () => {
     const result = await runCoach({
       observations: steps, goals: [], tasks: [{ status: 'active' }], sync: [], consent: true, proxyConfigured: true, online: true,

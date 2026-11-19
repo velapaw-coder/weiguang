@@ -1,6 +1,6 @@
 import { Annotation, END, MemorySaver, START, StateGraph } from '@langchain/langgraph';
 import { assess } from './quality.js';
-import { numericValue } from './history.js';
+import { newestFirst, numericValue } from './history.js';
 import { minimalSummary } from './summary.js';
 import { encodeSaver, restoreSaver } from './checkpoint.js';
 
@@ -27,7 +27,7 @@ const CoachState = Annotation.Root({
 });
 
 function localProposal(observations) {
-  const steps = observations.find((row) => row.metric === 'steps' && numericValue(row) != null);
+  const steps = observations.filter((row) => row.metric === 'steps' && numericValue(row) != null).sort(newestFirst)[0];
   if (!steps) return [];
   const value = numericValue(steps);
   const deviceSampledAt = steps.device_sampled_at ?? steps.deviceSampledAt ?? null;

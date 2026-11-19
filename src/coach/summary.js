@@ -1,4 +1,4 @@
-import { primaryValue } from './history.js';
+import { newestFirst, primaryValue } from './history.js';
 
 const LIMIT = 1500;
 
@@ -12,7 +12,7 @@ export function minimalSummary({ observations = [], goals = [], tasks = [], ques
   }
   const metrics = [];
   for (const [metric, rows] of grouped) {
-    const ordered = rows.slice().sort((a, b) => Number(b.phone_received_at ?? b.phoneReceivedAt ?? 0) - Number(a.phone_received_at ?? a.phoneReceivedAt ?? 0));
+    const ordered = rows.slice().sort(newestFirst);
     metrics.push({
       metric,
       points: ordered.slice(0, 3).map((row) => ({

@@ -18,6 +18,18 @@ export function numericValue(row) {
   return null;
 }
 
+/** Newest first by the band's own clock; rows without one rank last, then by receive time. */
+export function newestFirst(a, b) {
+  const left = String(a?.device_sampled_at ?? a?.deviceSampledAt ?? '');
+  const right = String(b?.device_sampled_at ?? b?.deviceSampledAt ?? '');
+  if (left !== right) {
+    if (!left) return 1;
+    if (!right) return -1;
+    return right.localeCompare(left);
+  }
+  return Number(b?.phone_received_at ?? b?.phoneReceivedAt ?? 0) - Number(a?.phone_received_at ?? a?.phoneReceivedAt ?? 0);
+}
+
 export function primaryValue(row) {
   const value = numericValue(row);
   if (row?.quality === 'invalid_device_value') return null;
