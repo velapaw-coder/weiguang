@@ -39,8 +39,10 @@ public class WeiguangApp extends Application {
         rememberPreviousExit();
         rememberUncaught();
         DebugModelKeyInstall.ensure(this);
-        ensureSdk(this);
         ReminderScheduler.ensureChannel(this);
+        // UTE BLE init is heavy under software emulation; never block Application.onCreate
+        // (that caused instrumentation "bg anr" kills on TCG). Plugins still call ensureSdk.
+        new Thread(() -> ensureSdk(WeiguangApp.this), "ute-sdk-init").start();
     }
 
     private void rememberPreviousExit() {

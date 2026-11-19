@@ -23,4 +23,18 @@ public class DebugModelMockTest {
                 DebugModelPoster.RESPONSES_URL,
                 DebugModelMock.resolveTransportUrl(true, DebugModelPoster.RESPONSES_URL, " "));
     }
+
+    @Test
+    public void withoutExplicitMockPrefsStaysOnOfficialResponses() {
+        // Real-device packaging with only a Key asset must not enter mock.
+        assertEquals(
+                DebugModelPoster.RESPONSES_URL,
+                DebugModelMock.resolveTransportUrl(true, DebugModelPoster.RESPONSES_URL, null));
+        assertEquals(
+                DebugModelPoster.RESPONSES_URL,
+                DebugModelMock.resolveTransportUrl(true, DebugModelPoster.RESPONSES_URL, ""));
+        assertEquals(
+                DebugModelPoster.RESPONSES_URL,
+                DebugModelMock.resolveTransportUrl(true, DebugModelPoster.RESPONSES_URL, "https://ark.cn-beijing.volces.com/api/v3/responses"));
+    }
 }

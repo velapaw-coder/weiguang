@@ -7,9 +7,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.weiguang.energy.core.DebugModelKeyBootstrap;
-import com.weiguang.energy.core.DebugModelMock;
 import com.weiguang.energy.core.DebugModelPoster;
-import com.weiguang.energy.core.HttpsModelTransport;
 import com.weiguang.energy.core.HealthRepository;
 import com.weiguang.energy.core.ReminderPolicy;
 
@@ -26,6 +24,15 @@ import java.util.concurrent.Executors;
 public class WeiguangStorePlugin extends Plugin {
     /** Keep Volcano HTTPS off the Capacitor bridge thread so chat UI stays responsive. */
     private final ExecutorService modelIo = Executors.newSingleThreadExecutor();
+    private WeiguangCoachBridge coachBridge;
+
+    private WeiguangCoachBridge bridge() {
+        if (coachBridge == null) {
+            coachBridge = new WeiguangCoachBridge(getContext());
+        }
+        return coachBridge;
+    }
+
     @PluginMethod
     public void snapshot(PluginCall call) {
         call.resolve(snapshotObject());
@@ -196,16 +203,9 @@ public class WeiguangStorePlugin extends Plugin {
     public void postDebugModel(PluginCall call) {
         DebugModelKeyInstall.ensure(getContext());
         String body = call.getString("body", "");
-        boolean debug = debugBuild();
-        String key = debugPrefs().getString(DEBUG_KEY, "");
         modelIo.execute(() -> {
             try {
-                DebugModelPoster.Outcome outcome = DebugModelPoster.send(
-                        debug,
-                        key,
-                        DebugModelPoster.RESPONSES_URL,
-                        body,
-                        this::postHttps);
+                DebugModelPoster.Outcome outcome = bridge().postDebugModel(body);
                 JSObject result = new JSObject();
                 result.put("sent", outcome.sent);
                 result.put("reason", outcome.reason);
@@ -333,12 +333,6 @@ public class WeiguangStorePlugin extends Plugin {
         result.put("debug", debug);
         result.put("configured", debug && key != null && !key.trim().isEmpty());
         return result;
-    }
-
-    private DebugModelPoster.Response postHttps(String url, String authorization, String body) throws Exception {
-        String mock = debugPrefs().getString(DebugModelMock.PREFS_KEY, "");
-        String target = DebugModelMock.resolveTransportUrl(debugBuild(), url, mock);
-        return HttpsModelTransport.INSTANCE.post(target, authorization, body);
     }
 
     private static String zone(PluginCall call) {
