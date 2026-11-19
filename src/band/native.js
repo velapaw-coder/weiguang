@@ -46,6 +46,7 @@ export const WeiguangStore = registerPlugin('WeiguangStore', {
     },
     async listObservations() { return { rows: [] }; },
     async saveGoal() { return { ok: false, error: 'sqlite_android_only' }; },
+    async removeGoal() { return { ok: false, error: 'sqlite_android_only' }; },
     async createTask() { return { ok: false, error: 'sqlite_android_only' }; },
     async updateTask() { return { ok: false, error: 'sqlite_android_only' }; },
     async setTaskStatus() { return { ok: false, error: 'sqlite_android_only' }; },
@@ -58,6 +59,14 @@ export const WeiguangStore = registerPlugin('WeiguangStore', {
     async saveGraphSnapshot() { return { ok: false, error: 'sqlite_android_only' }; },
     async getGraphSnapshot() { return {}; },
     async saveCoachResult() { return { ok: false, error: 'sqlite_android_only' }; },
+  }),
+});
+
+export const AppShell = registerPlugin('AppShell', {
+  web: () => ({
+    async setBars() { return { ok: false }; },
+    async minimize() { return { ok: false }; },
+    async addListener() { return { remove() {} }; },
   }),
 });
 

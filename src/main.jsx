@@ -7,5 +7,6 @@ import '@fontsource/dm-sans/latin-600.css';
 import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/dm-sans/latin-800.css';
 import './styles.css';
+import './app.css';
 
 createRoot(document.getElementById('root')).render(<App />);
