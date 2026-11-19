@@ -1,29 +1,53 @@
-name: Build Android demo APK
+name: Test Weiguang
 on:
   workflow_dispatch:
   push:
     branches: [main]
 jobs:
-  android:
+  unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - run: npm ci
-      - run: npm run build
-      - run: npx cap sync android
-      - run: chmod +x android/gradlew
-      - run: ./gradlew :app:assembleDebug
-        working-directory: android
-      - uses: actions/upload-artifact@v4
-        with:
-          name: weiguang-demo-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - run: npm ci
+    - run: npm test
+    - run: npm run build
+    - run: node scripts/check-bundle.mjs
+    - run: chmod +x android/gradlew
+    - run: ./gradlew :band-core:test
+      working-directory: android
+  android-vendor-sdk:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Refuse a mock SDK build
+      env:
+        UTE_SDK_DIR: ${{ secrets.UTE_SDK_DIR }}
+      run: |
+        if [ ! -f "${UTE_SDK_DIR}/app/libs/uteAndroidSdk_v5.4.2.aar" ]; then
+          echo "Vendor Ute SDK aar is not on this runner. Refusing to report a green Android build."
+          exit 1
+        fi
+    - run: npm ci
+    - run: npm run build
+    - run: npx cap sync android
+    - run: chmod +x android/gradlew
+    - run: ./gradlew :app:assembleDebug
+      working-directory: android
+      env:
+        UTE_SDK_DIR: ${{ secrets.UTE_SDK_DIR }}

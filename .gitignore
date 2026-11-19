@@ -6,7 +6,14 @@ android/.gradle/
 android/**/build/
 android/local.properties
 android/app/src/main/assets/public/
+android/app/src/main/assets/weiguang_debug_model_key
 
 *.log
 home-mobile.png
 keyboard-check.png
+.env
+.env.*
+.dev.vars
+.wrangler/
+private-sdks/
+vendor/

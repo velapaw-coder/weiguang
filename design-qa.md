@@ -1,6 +1,6 @@
 # 设计与交互检查
 
-final result: passed
+这份检查记录的是更早的交互原型。当前应用已去掉演示账号、演示指标和关键词回复；真机蓝牙尚未在本环境验证。
 
 参考：`D:/admin/下载/睡眠精力管理应用界面拼贴展演.png`（12 画面拼贴，单页裁图在 `outputs/energy-companion-split/`）。
 
