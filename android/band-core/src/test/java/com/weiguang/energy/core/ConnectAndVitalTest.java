@@ -31,6 +31,19 @@ public class ConnectAndVitalTest {
     }
 
     @Test
+    public void diagnosticKeepsObfuscatedSdkFrames() {
+        NoClassDefFoundError error = new NoClassDefFoundError("Failed resolution of: Lcom/google/gson/Gson;");
+        error.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("uterkfor.uterkelse", "uterkdo", "SourceFile", 6),
+                new StackTraceElement("uterkdo.uterkbyte", "uterkdo", "SourceFile", 1),
+                new StackTraceElement("android.os.Binder", "execTransact", "Binder.java", 1444)});
+        String text = ConnectDiagnostic.format("uncaught", error);
+        assertTrue(text.contains("uterkfor.uterkelse.uterkdo"));
+        assertTrue(text.contains("uterkdo.uterkbyte.uterkdo"));
+        assertFalse(text.contains("android.os.Binder"));
+    }
+
+    @Test
     public void temperatureAndSleepKeepSdkUnitsAndSessionIdentity() {
         assertTrue(VitalSample.bodyCelsiusPlausible(36.5f));
         assertFalse(VitalSample.bodyCelsiusPlausible(0f));

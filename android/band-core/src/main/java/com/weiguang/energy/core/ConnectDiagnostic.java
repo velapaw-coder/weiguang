@@ -21,7 +21,7 @@ public final class ConnectDiagnostic {
             int kept = 0;
             for (StackTraceElement frame : error.getStackTrace()) {
                 String name = frame.getClassName();
-                if (name.contains("weiguang") || name.contains("utesdk") || name.contains("bluetooth")) {
+                if (name.contains("weiguang") || name.contains("utesdk") || name.startsWith("uterk") || name.contains("bluetooth")) {
                     frames.append(name).append('.').append(frame.getMethodName()).append('\n');
                     if (++kept == 6) {
                         break;
